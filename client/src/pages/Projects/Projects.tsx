@@ -4,11 +4,14 @@ import {
     DndContext,
     closestCorners,
     KeyboardSensor,
-    PointerSensor,
+    MouseSensor,
+    TouchSensor,
     useSensor,
     useSensors,
     DragEndEvent,
     useDroppable,
+    DragOverlay,
+    DragStartEvent,
 } from '@dnd-kit/core';
 import {
     arrayMove,
@@ -99,6 +102,25 @@ function ProjectList() {
 
 const STATUSES = ['todo', 'inProgress', 'done'] as const;
 
+function TaskCard({ task, onClick, isOverlay, style }: { task: any, onClick?: () => void, isOverlay?: boolean, style?: React.CSSProperties }) {
+    return (
+        <div
+            style={style}
+            className={`task-card ${isOverlay ? 'dragging-overlay' : ''}`}
+            onClick={onClick}
+        >
+            <div className="task-title">{task.title}</div>
+            <div className="task-meta">
+                <span className={`priority-badge priority-${task.priority}`}>{task.priority}</span>
+                {task.assigned_name && (
+                    <span className="avatar" style={{ background: task.assigned_color }}>{task.assigned_name[0]}</span>
+                )}
+                {task.due_date && <span>📅 {task.due_date.slice(0, 10)}</span>}
+            </div>
+        </div>
+    );
+}
+
 function SortableTask({ task, onClick }: { task: any, onClick: () => void }) {
     const {
         attributes,
@@ -110,29 +132,15 @@ function SortableTask({ task, onClick }: { task: any, onClick: () => void }) {
     } = useSortable({ id: task.id });
 
     const style = {
-        transform: CSS.Transform.toString(transform),
+        transform: CSS.Translate.toString(transform),
         transition,
-        opacity: isDragging ? 0.5 : 1,
-        zIndex: isDragging ? 999 : 1,
+        opacity: isDragging ? 0.3 : 1,
+        touchAction: 'none',
     };
 
     return (
-        <div
-            ref={setNodeRef}
-            style={style}
-            {...attributes}
-            {...listeners}
-            className="task-card"
-            onClick={onClick}
-        >
-            <div className="task-title">{task.title}</div>
-            <div className="task-meta">
-                <span className={`priority-badge priority-${task.priority}`}>{task.priority}</span>
-                {task.assigned_name && (
-                    <span className="avatar" style={{ background: task.assigned_color }}>{task.assigned_name[0]}</span>
-                )}
-                {task.due_date && <span>📅 {task.due_date.slice(0, 10)}</span>}
-            </div>
+        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+            <TaskCard task={task} onClick={onClick} />
         </div>
     );
 }
@@ -153,10 +161,12 @@ function ProjectBoard() {
     const [members, setMembers] = useState<any[]>([]);
     const [showModal, setShowModal] = useState(false);
     const [editTask, setEditTask] = useState<any>(null);
+    const [activeId, setActiveId] = useState<string | null>(null);
     const [form, setForm] = useState({ title: '', description: '', priority: 'medium', status: 'todo', assigned_user_id: '', due_date: '' });
 
     const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+        useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+        useSensor(TouchSensor, { activationConstraint: { delay: 300, tolerance: 8 } }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     );
 
@@ -166,7 +176,12 @@ function ProjectBoard() {
     };
     useEffect(() => { load(); }, [id]);
 
+    const handleDragStart = (event: DragStartEvent) => {
+        setActiveId(event.active.id.toString());
+    };
+
     const handleDragEnd = async (event: DragEndEvent) => {
+        setActiveId(null);
         const { active, over } = event;
         if (!over) return;
 
@@ -227,6 +242,7 @@ function ProjectBoard() {
             <DndContext 
                 sensors={sensors}
                 collisionDetection={closestCorners}
+                onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
             >
                 <div className="kanban">
@@ -259,6 +275,14 @@ function ProjectBoard() {
                         </div>
                     ))}
                 </div>
+                <DragOverlay dropAnimation={null}>
+                    {activeId ? (
+                        <TaskCard 
+                            task={tasks.find(t => t.id === activeId)} 
+                            isOverlay 
+                        />
+                    ) : null}
+                </DragOverlay>
             </DndContext>
 
             {showModal && (

@@ -1173,7 +1173,22 @@ select.input {
 @media (max-width: 768px) {
   .kanban {
     grid-template-columns: 1fr;
-    gap: 12px;
+    gap: 8px;
+  }
+
+  .kanban-col {
+    padding: 8px;
+    gap: 4px;
+  }
+
+  .kanban-task-list {
+    min-height: 40px;
+    gap: 6px;
+  }
+
+  .kanban-col-header {
+    margin-bottom: 6px;
+    font-size: 11px;
   }
 }
 
@@ -1191,7 +1206,25 @@ select.input {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 50px;
+  min-height: 120px;
+  transition: background-color 0.2s ease;
+  border-radius: var(--radius-sm);
+}
+
+/* Premium Drag Overlay */
+.task-card.dragging-overlay {
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.5), 0 0 0 2px var(--accent);
+  transform: rotate(1.5deg);
+  cursor: grabbing;
+  background: var(--bg2);
+  z-index: 10000;
+  opacity: 0.98;
+  pointer-events: none;
+}
+
+/* Smooth transition when items move */
+.task-card {
+  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.2s ease;
 }
 
 .kanban-col-header {
