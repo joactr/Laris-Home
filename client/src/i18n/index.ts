@@ -1,0 +1,170 @@
+export const translations: Record<string, Record<string, string>> = {
+  es: {
+    // Navigation
+    'nav.dashboard': 'Inicio',
+    'nav.shopping': 'Lista de la compra',
+    'nav.calendar': 'Calendario',
+    'nav.chores': 'Tareas del hogar',
+    'nav.meals': 'Plan de comidas',
+    'nav.recipes': 'Recetas',
+    'nav.projects': 'Proyectos',
+    'nav.logout': 'Cerrar sesión',
+
+    // Generic
+    'common.add': 'Añadir',
+    'common.save': 'Guardar',
+    'common.cancel': 'Cancelar',
+    'common.delete': 'Eliminar',
+    'common.edit': 'Editar',
+    'common.search': 'Buscar',
+    'common.loading': 'Cargando...',
+
+    // Auth
+    'auth.login': 'Iniciar sesión',
+    'auth.register': 'Registrarse',
+    'auth.name': 'Nombre',
+    'auth.namePlaceholder': 'Tu nombre',
+    'auth.email': 'Correo electrónico',
+    'auth.emailPlaceholder': 'tu@ejemplo.com',
+    'auth.password': 'Contraseña',
+    'auth.passwordPlaceholder': '••••••••',
+    'auth.noAccount': '¿No tienes cuenta?',
+    'auth.registerLink': 'Regístrate',
+    'auth.hasAccount': '¿Ya tienes cuenta?',
+    'auth.loginLink': 'Inicia sesión',
+    'auth.createAccount': 'Crear cuenta',
+    'auth.signin': 'Entrar',
+    'auth.tagline': 'Tu hogar compartido, organizado',
+
+    // Titles
+    'page.dashboard': 'Inicio',
+    'page.shopping': 'Lista de la compra',
+    'page.calendar': 'Calendario',
+    'page.chores': 'Tareas del hogar',
+    'page.meals': 'Plan de comidas',
+    'page.recipes': 'Recetas',
+    'page.projects': 'Proyectos',
+    
+    // Dashboard
+    'dashboard.greeting.morning': 'Buenos días',
+    'dashboard.greeting.afternoon': 'Buenas tardes',
+    'dashboard.greeting.evening': 'Buenas noches',
+    'dashboard.todayMeals': 'Comidas de hoy',
+    'dashboard.todayEvents': 'Eventos de hoy',
+    'dashboard.todayChores': 'Tareas de hoy',
+    'dashboard.overdueTasks': 'Tareas atrasadas',
+    'dashboard.noMeals': 'No hay comidas planificadas',
+    'dashboard.editMeals': 'Editar comidas →',
+    'dashboard.noEvents': 'No hay eventos hoy',
+    'dashboard.viewCalendar': 'Ver calendario →',
+    'dashboard.noChores': 'No hay tareas de hogar hoy',
+    'dashboard.manageChores': 'Gestionar tareas →',
+    'dashboard.viewProjects': 'Ver proyectos →',
+    'dashboard.with': 'con',
+
+    // Shopping
+    'shopping.itemsRemaining': 'artículos restantes',
+    'shopping.newList': '+ Lista',
+    'shopping.newListTitle': 'Nueva lista',
+    'shopping.listNameLabel': 'Nombre de la lista',
+    'shopping.listNamePlaceholder': 'Ej. Supermercado',
+    'shopping.addItemPlaceholder': 'Añadir artículo…',
+    'shopping.qtyLabel': 'Cant',
+    'shopping.filterAll': 'Todos',
+    'shopping.filterActive': 'Pendientes',
+    'shopping.filterCompleted': 'Completados',
+    'shopping.noItems': 'No hay artículos aquí',
+    'shopping.addedBy': 'Añadido por',
+
+    // Calendar
+    'calendar.newEvent': '+ Evento',
+    'calendar.editEvent': 'Editar evento',
+    'calendar.deleteConfirm': '¿Eliminar este evento?',
+    'calendar.thisWeek': 'Esta semana',
+    'calendar.noEvents': 'No hay eventos esta semana',
+    'calendar.category.shared': 'Compartido',
+    'calendar.category.personal': 'Personal',
+    'calendar.category.reminder': 'Recordatorio',
+    'calendar.assigned': 'Asignado a:',
+    
+    // Chores
+    'chores.addChore': '+ Tarea',
+    'chores.done': 'completadas',
+    'chores.noCompleted': 'Aún no hay tareas completadas',
+    'chores.filterAll': 'Todas',
+    'chores.filterMine': 'Mías',
+    'chores.filterPartner': 'Pareja',
+    'chores.newRecurring': 'Nueva tarea recurrente',
+    'chores.location': 'Lugar / Habitación',
+    'chores.recurrence': 'Recurrencia',
+    'chores.daily': 'Diaria',
+    'chores.weekly': 'Semanal',
+    'chores.monthly': 'Mensual',
+    'chores.points': 'Puntos',
+    'chores.assignTo': 'Asignar a',
+    'chores.anyone': 'Cualquiera',
+
+    // Projects
+    'projects.addProject': '+ Proyecto',
+    'projects.active': 'activo',
+    'projects.archive': 'Archivar',
+    'projects.noActive': 'No hay proyectos activos',
+    'projects.archivedTitle': 'Archivados',
+    'projects.newProject': 'Nuevo proyecto',
+    'projects.description': 'Descripción',
+    'projects.tasks': 'Tareas',
+    'projects.addTask': '+ Tarea',
+    'projects.add': '+ Añadir',
+    'projects.statusTodo': 'Por hacer',
+    'projects.statusInProgress': 'En progreso',
+    'projects.statusDone': 'Hecho',
+    'projects.newTask': 'Nueva tarea',
+    'projects.editTask': 'Editar tarea',
+    'projects.status': 'Estado',
+    'projects.priority': 'Prioridad',
+    'projects.low': 'Baja',
+    'projects.medium': 'Media',
+    'projects.high': 'Alta',
+    'projects.unassigned': 'Sin asignar',
+    'projects.dueDate': 'Fecha de entrega',
+    'projects.deleteConfirm': '¿Eliminar tarea?',
+
+    // Recipes
+    'recipes.importUrl': 'Importar desde URL',
+    'recipes.importBtn': 'Importar',
+    'recipes.importing': 'Importando...',
+    'recipes.title': 'Título',
+    'recipes.description': 'Descripción',
+    'recipes.prepTime': 'Prep',
+    'recipes.cookTime': 'Cocción',
+    'recipes.servings': 'Raciones',
+    'recipes.macros': 'Macros (por ración)',
+    'recipes.nutrition': 'Información nutricional',
+    'recipes.calories': 'Calorías',
+    'recipes.protein': 'Proteína',
+    'recipes.carbs': 'Carbohidratos',
+    'recipes.fat': 'Grasa',
+    'recipes.ingredients': 'Ingredientes',
+    'recipes.instructions': 'Instrucciones',
+    'recipes.addIngredient': '+ Añadir Ingrediente',
+    'recipes.addInstruction': '+ Añadir Paso',
+    'recipes.reviewAndSave': 'Revisar y Guardar',
+    'recipes.save': 'Guardar Receta',
+    'recipes.addToShoppingList': 'Añadir al carrito',
+    'recipes.noRecipes': 'No hay recetas.'
+  }
+};
+
+let currentLang = 'es';
+
+export function setLanguage(lang: string) {
+  currentLang = lang;
+}
+
+export function t(key: string, defaultText?: string): string {
+  const langDict = translations[currentLang];
+  if (langDict && langDict[key]) {
+    return langDict[key];
+  }
+  return defaultText || key;
+}

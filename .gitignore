@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+
+# Production
+dist/
+build/
+
+# Vite / Build tools
+.vite/
+.cache/
+
+# Environments / Sensitive Information
+.env
+.env.local
+.env.*.local
+*.env
+server/.env
+client/.env
+
+# Custom requested files
+TODO_IDEAS.md
+TODO
+TODO.md
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+desktop.ini
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.project
+.classpath
+.settings/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database
+*.sqlite
+*.db
