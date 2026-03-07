@@ -1,5 +1,23 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, useNavigate, useParams } from 'react-router-dom';
+import {
+    DndContext,
+    closestCorners,
+    KeyboardSensor,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    DragEndEvent,
+    useDroppable,
+} from '@dnd-kit/core';
+import {
+    arrayMove,
+    SortableContext,
+    sortableKeyboardCoordinates,
+    verticalListSortingStrategy,
+    useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { api } from '../../api/client';
 import { t } from '../../i18n';
 
@@ -81,6 +99,53 @@ function ProjectList() {
 
 const STATUSES = ['todo', 'inProgress', 'done'] as const;
 
+function SortableTask({ task, onClick }: { task: any, onClick: () => void }) {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging
+    } = useSortable({ id: task.id });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+        zIndex: isDragging ? 999 : 1,
+    };
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            {...attributes}
+            {...listeners}
+            className="task-card"
+            onClick={onClick}
+        >
+            <div className="task-title">{task.title}</div>
+            <div className="task-meta">
+                <span className={`priority-badge priority-${task.priority}`}>{task.priority}</span>
+                {task.assigned_name && (
+                    <span className="avatar" style={{ background: task.assigned_color }}>{task.assigned_name[0]}</span>
+                )}
+                {task.due_date && <span>📅 {task.due_date.slice(0, 10)}</span>}
+            </div>
+        </div>
+    );
+}
+
+function DroppableColumn({ status, children }: { status: string, children: React.ReactNode }) {
+    const { setNodeRef } = useDroppable({ id: status });
+    return (
+        <div ref={setNodeRef} className="kanban-task-list">
+            {children}
+        </div>
+    );
+}
+
 function ProjectBoard() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -90,11 +155,39 @@ function ProjectBoard() {
     const [editTask, setEditTask] = useState<any>(null);
     const [form, setForm] = useState({ title: '', description: '', priority: 'medium', status: 'todo', assigned_user_id: '', due_date: '' });
 
+    const sensors = useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    );
+
     const load = async () => {
         const [t, m] = await Promise.all([api.projects.getTasks(id!), api.auth.members()]);
         setTasks(t); setMembers(m);
     };
     useEffect(() => { load(); }, [id]);
+
+    const handleDragEnd = async (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!over) return;
+
+        const activeTask = tasks.find(t => t.id === active.id);
+        const overId = over.id.toString();
+
+        let newStatus: typeof STATUSES[number] | null = null;
+        if (STATUSES.includes(overId as any)) {
+            newStatus = overId as any;
+        } else {
+            const overTask = tasks.find(t => t.id === over.id);
+            if (overTask) newStatus = overTask.status;
+        }
+
+        if (activeTask && newStatus && activeTask.status !== newStatus) {
+            // Optimistic update
+            setTasks(prev => prev.map(t => t.id === activeTask.id ? { ...t, status: newStatus } : t));
+            await api.projects.updateTask(activeTask.id, { status: newStatus });
+            load(); // Re-sync with server
+        }
+    };
 
     const openCreate = (status = 'todo') => {
         setEditTask(null);
@@ -130,32 +223,43 @@ function ProjectBoard() {
                 </div>
                 <button id="task-add" className="btn btn-primary btn-sm" onClick={() => openCreate()}>{t('projects.addTask')}</button>
             </div>
-            <div className="kanban">
-                {STATUSES.map(status => (
-                    <div key={status} className="kanban-col">
-                        <div className="kanban-col-header">
-                            {status === 'todo' ? t('projects.statusTodo') : status === 'inProgress' ? t('projects.statusInProgress') : t('projects.statusDone')}
-                        </div>
-                        <button
-                            className="btn btn-ghost btn-sm"
-                            style={{ width: '100%', marginBottom: 8, justifyContent: 'center' }}
-                            onClick={() => openCreate(status)}
-                        >{t('projects.add')}</button>
-                        {tasks.filter(t => t.status === status).map(task => (
-                            <div key={task.id} className="task-card" onClick={() => openEdit(task)}>
-                                <div className="task-title">{task.title}</div>
-                                <div className="task-meta">
-                                    <span className={`priority-badge priority-${task.priority}`}>{task.priority}</span>
-                                    {task.assigned_name && (
-                                        <span className="avatar" style={{ background: task.assigned_color }}>{task.assigned_name[0]}</span>
-                                    )}
-                                    {task.due_date && <span>📅 {task.due_date.slice(0, 10)}</span>}
-                                </div>
+            
+            <DndContext 
+                sensors={sensors}
+                collisionDetection={closestCorners}
+                onDragEnd={handleDragEnd}
+            >
+                <div className="kanban">
+                    {STATUSES.map(status => (
+                        <div key={status} className="kanban-col">
+                            <div className="kanban-col-header">
+                                {status === 'todo' ? t('projects.statusTodo') : status === 'inProgress' ? t('projects.statusInProgress') : t('projects.statusDone')}
                             </div>
-                        ))}
-                    </div>
-                ))}
-            </div>
+                            <button
+                                className="btn btn-ghost btn-sm"
+                                style={{ width: '100%', marginBottom: 8, justifyContent: 'center' }}
+                                onClick={() => openCreate(status)}
+                            >{t('projects.add')}</button>
+                            
+                            <SortableContext 
+                                id={status}
+                                items={tasks.filter(t => t.status === status).map(t => t.id)}
+                                strategy={verticalListSortingStrategy}
+                            >
+                                <DroppableColumn status={status}>
+                                    {tasks.filter(t => t.status === status).map(task => (
+                                        <SortableTask 
+                                            key={task.id} 
+                                            task={task} 
+                                            onClick={() => openEdit(task)} 
+                                        />
+                                    ))}
+                                </DroppableColumn>
+                            </SortableContext>
+                        </div>
+                    ))}
+                </div>
+            </DndContext>
 
             {showModal && (
                 <div className="modal-overlay" onClick={() => setShowModal(false)}>
