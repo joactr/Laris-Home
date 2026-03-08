@@ -22,48 +22,76 @@ const MealDaySchema = z.object({
 // Get meal plan for a week
 router.get('/', async (req: AuthRequest, res: Response) => {
     const { start, end } = req.query;
+    // We group items by day and return an array of day objects
     let query = `
-        SELECT m.*, 
-            rb.title as breakfast_recipe_title, rb.calories_per_serving as breakfast_calories, rb.protein_per_serving as breakfast_protein, rb.carbs_per_serving as breakfast_carbs, rb.fat_per_serving as breakfast_fat,
-            rl.title as lunch_recipe_title, rl.calories_per_serving as lunch_calories, rl.protein_per_serving as lunch_protein, rl.carbs_per_serving as lunch_carbs, rl.fat_per_serving as lunch_fat,
-            rd.title as dinner_recipe_title, rd.calories_per_serving as dinner_calories, rd.protein_per_serving as dinner_protein, rd.carbs_per_serving as dinner_carbs, rd.fat_per_serving as dinner_fat,
-            rs.title as snack_recipe_title, rs.calories_per_serving as snack_calories, rs.protein_per_serving as snack_protein, rs.carbs_per_serving as snack_carbs, rs.fat_per_serving as snack_fat
-        FROM meal_plan_days m
-        LEFT JOIN recipes rb ON m.breakfast_recipe_id = rb.id
-        LEFT JOIN recipes rl ON m.lunch_recipe_id = rl.id
-        LEFT JOIN recipes rd ON m.dinner_recipe_id = rd.id
-        LEFT JOIN recipes rs ON m.snack_recipe_id = rs.id
+        SELECT m.date,
+               json_agg(
+                   json_build_object(
+                       'id', m.id,
+                       'meal_type', m.meal_type,
+                       'recipe_id', m.recipe_id,
+                       'text_content', m.text_content,
+                       'servings', m.servings,
+                       'recipe_title', r.title,
+                       'recipe_image_url', r.image_url,
+                       'prep_time_minutes', r.prep_time_minutes,
+                       'cook_time_minutes', r.cook_time_minutes,
+                       'calories_per_serving', r.calories_per_serving,
+                       'protein_per_serving', r.protein_per_serving,
+                       'carbs_per_serving', r.carbs_per_serving,
+                       'fat_per_serving', r.fat_per_serving
+                   )
+               ) as items
+        FROM meal_plan_items m
+        LEFT JOIN recipes r ON m.recipe_id = r.id
         WHERE m.household_id=$1`;
+    
     const params: any[] = [req.user!.householdId];
-    if (start && end) { params.push(start, end); query += ' AND date >= $2 AND date <= $3'; }
-    query += ' ORDER BY date';
+    if (start && end) { 
+        params.push(start, end); 
+        query += ' AND date >= $2 AND date <= $3'; 
+    }
+    query += ' GROUP BY m.date ORDER BY m.date';
+    
     const { rows } = await pool.query(query, params);
     res.json(rows);
 });
 
-// Upsert meal plan day
-router.put('/:date', async (req: AuthRequest, res: Response) => {
-    const parsed = MealDaySchema.safeParse({ date: req.params.date, ...req.body });
-    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
-    const d = parsed.data;
+// Add an item to a meal day
+router.post('/:date/items', async (req: AuthRequest, res: Response) => {
+    const { meal_type, recipe_id, text_content, servings } = req.body;
     const { rows } = await pool.query(
-        `INSERT INTO meal_plan_days (
-            household_id, date, breakfast, lunch, dinner, snack,
-            breakfast_recipe_id, lunch_recipe_id, dinner_recipe_id, snack_recipe_id, notes
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-        ON CONFLICT (household_id, date) DO UPDATE
-        SET breakfast=$3, lunch=$4, dinner=$5, snack=$6,
-            breakfast_recipe_id=$7, lunch_recipe_id=$8, dinner_recipe_id=$9, snack_recipe_id=$10,
-            notes=$11 RETURNING *`,
-        [
-            req.user!.householdId, d.date, 
-            d.breakfast ?? null, d.lunch ?? null, d.dinner ?? null, d.snack ?? null,
-            d.breakfast_recipe_id ?? null, d.lunch_recipe_id ?? null, d.dinner_recipe_id ?? null, d.snack_recipe_id ?? null,
-            d.notes ?? null
-        ]
+        `INSERT INTO meal_plan_items (
+            household_id, date, meal_type, recipe_id, text_content, servings
+        ) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [req.user!.householdId, req.params.date, meal_type, recipe_id || null, text_content || null, servings || 1]
     );
     res.json(rows[0]);
+});
+
+// Update a meal item
+router.put('/items/:id', async (req: AuthRequest, res: Response) => {
+    const { servings, text_content } = req.body;
+    const { rows } = await pool.query(
+        `UPDATE meal_plan_items 
+         SET servings = COALESCE($1, servings), 
+             text_content = COALESCE($2, text_content),
+             updated_at = NOW()
+         WHERE id = $3 AND household_id = $4 RETURNING *`,
+        [servings, text_content, req.params.id, req.user!.householdId]
+    );
+    if (!rows.length) { res.status(404).json({ error: 'Item not found' }); return; }
+    res.json(rows[0]);
+});
+
+// Delete a meal item
+router.delete('/items/:id', async (req: AuthRequest, res: Response) => {
+    const { rows } = await pool.query(
+        `DELETE FROM meal_plan_items WHERE id = $1 AND household_id = $2 RETURNING id`,
+        [req.params.id, req.user!.householdId]
+    );
+    if (!rows.length) { res.status(404).json({ error: 'Item not found' }); return; }
+    res.json({ success: true, id: req.params.id });
 });
 
 // Add meal ingredients to shopping list

@@ -74,7 +74,9 @@ export const api = {
     },
     meals: {
         getWeek: (start: string, end: string) => request<any[]>(`/meals?start=${start}&end=${end}`),
-        updateDay: (date: string, data: object) => request<any>(`/meals/${date}`, { method: 'PUT', body: JSON.stringify(data) }),
+        addItem: (date: string, data: object) => request<any>(`/meals/${date}/items`, { method: 'POST', body: JSON.stringify(data) }),
+        updateItem: (id: string, data: object) => request<any>(`/meals/items/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+        deleteItem: (id: string) => request<any>(`/meals/items/${id}`, { method: 'DELETE' }),
         addToShopping: (date: string, listId: string, ingredients: string) =>
             request<any>(`/meals/${date}/add-to-shopping`, { method: 'POST', body: JSON.stringify({ list_id: listId, ingredients }) }),
     },

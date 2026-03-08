@@ -19,7 +19,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
             [hh, todayStr]
         ),
         // Today's meals
-        pool.query('SELECT * FROM meal_plan_days WHERE household_id=$1 AND date=$2', [hh, todayStr]),
+        pool.query(
+            `SELECT mpi.meal_type, mpi.text_content, r.title as recipe_title
+             FROM meal_plan_items mpi
+             LEFT JOIN recipes r ON mpi.recipe_id = r.id
+             WHERE mpi.household_id=$1 AND mpi.date=$2
+             ORDER BY mpi.meal_type`,
+            [hh, todayStr]
+        ),
         // Today's chores
         pool.query(
             `SELECT ci.*, ct.title, ct.location, ct.points, u.name AS assigned_name, u.color AS assigned_color
@@ -39,10 +46,20 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         ),
     ]);
 
+    const mealsObj: Record<string, string> = {};
+    for (const row of meals.rows) {
+        const text = row.recipe_title || row.text_content || 'Item';
+        if (mealsObj[row.meal_type]) {
+            mealsObj[row.meal_type] += `, ${text}`;
+        } else {
+            mealsObj[row.meal_type] = text;
+        }
+    }
+
     res.json({
         today: todayStr,
         events: events.rows,
-        meals: meals.rows[0] ?? null,
+        meals: Object.keys(mealsObj).length > 0 ? mealsObj : null,
         chores: chores.rows,
         overdue_tasks: overdueTasks.rows,
     });
