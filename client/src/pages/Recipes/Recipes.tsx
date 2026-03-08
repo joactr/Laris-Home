@@ -110,17 +110,17 @@ export default function Recipes() {
                             
                             {(r.calories_per_serving || r.protein_per_serving || r.carbs_per_serving || r.fat_per_serving) && (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
-                                    {r.calories_per_serving && <span style={{ fontSize: 10, background: 'rgba(33,150,243,0.15)', color: '#90caf9', border: '1px solid rgba(33,150,243,0.3)', padding: '2px 6px', borderRadius: 6 }}><strong>{r.calories_per_serving}</strong> kcal</span>}
-                                    {r.carbs_per_serving && <span style={{ fontSize: 10, background: 'rgba(76,175,80,0.15)', color: '#a5d6a7', border: '1px solid rgba(76,175,80,0.3)', padding: '2px 6px', borderRadius: 6 }}><strong>{r.carbs_per_serving}g</strong> C</span>}
-                                    {r.fat_per_serving && <span style={{ fontSize: 10, background: 'rgba(156,39,176,0.15)', color: '#ce93d8', border: '1px solid rgba(156,39,176,0.3)', padding: '2px 6px', borderRadius: 6 }}><strong>{r.fat_per_serving}g</strong> G</span>}
-                                    {r.protein_per_serving && <span style={{ fontSize: 10, background: 'rgba(255,193,7,0.15)', color: '#ffe082', border: '1px solid rgba(255,193,7,0.3)', padding: '2px 6px', borderRadius: 6 }}><strong>{r.protein_per_serving}g</strong> P</span>}
+                                    {!!r.calories_per_serving && <span style={{ fontSize: 10, background: 'rgba(33,150,243,0.15)', color: '#90caf9', border: '1px solid rgba(33,150,243,0.3)', padding: '2px 6px', borderRadius: 6 }}><strong>{r.calories_per_serving}</strong> kcal</span>}
+                                    {!!r.carbs_per_serving && <span style={{ fontSize: 10, background: 'rgba(76,175,80,0.15)', color: '#a5d6a7', border: '1px solid rgba(76,175,80,0.3)', padding: '2px 6px', borderRadius: 6 }}><strong>{r.carbs_per_serving}g</strong> C</span>}
+                                    {!!r.fat_per_serving && <span style={{ fontSize: 10, background: 'rgba(156,39,176,0.15)', color: '#ce93d8', border: '1px solid rgba(156,39,176,0.3)', padding: '2px 6px', borderRadius: 6 }}><strong>{r.fat_per_serving}g</strong> G</span>}
+                                    {!!r.protein_per_serving && <span style={{ fontSize: 10, background: 'rgba(255,193,7,0.15)', color: '#ffe082', border: '1px solid rgba(255,193,7,0.3)', padding: '2px 6px', borderRadius: 6 }}><strong>{r.protein_per_serving}g</strong> P</span>}
                                 </div>
                             )}
                             
                             <div className="recipe-meta">
-                                {r.prep_time_minutes && <span>⏱ {r.prep_time_minutes}m</span>}
-                                {r.cook_time_minutes && <span>🍳 {r.cook_time_minutes}m</span>}
-                                {r.servings && <span>🍽 {r.servings} p.</span>}
+                                {!!r.prep_time_minutes && <span>⏱ {r.prep_time_minutes}m</span>}
+                                {!!r.cook_time_minutes && <span>🍳 {r.cook_time_minutes}m</span>}
+                                {!!r.servings && <span>🍽 {r.servings} p.</span>}
                             </div>
                         </div>
                     </div>

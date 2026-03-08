@@ -67,10 +67,6 @@ Devuelve ÚNICAMENTE un objeto JSON válido que siga exactamente este esquema:
   "servings": 2,
   "prepTimeMinutes": 15,
   "cookTimeMinutes": 30,
-  "caloriesPerServing": 350,
-  "proteinPerServing": 20,
-  "carbsPerServing": 30,
-  "fatPerServing": 15,
   "ingredients": [
     {
       "name": "string",
@@ -281,14 +277,13 @@ Devuelve SOLO JSON:
       throw new Error('OPENROUTER_API_KEY is not configured');
     }
 
-    const systemMessage = `Eres un experto chef y nutricionista. Tu tarea es recibir una receta básica (título, lista simple de ingredientes e instrucciones breves) y devolver una versión detallada y profesional.
+    const systemMessage = `Eres un experto chef. Tu tarea es recibir una receta básica (título, lista simple de ingredientes e instrucciones breves) y devolver una versión detallada y profesional.
 Debes:
 1. Mantener el título.
 2. Expandir la descripción para que sea atractiva.
 3. Estimar de forma realista para cuántas personas es (servings), tiempo de preparación y cocción.
-4. Estimar calorías y macronutrientes (proteínas, carbohidratos, grasas) por ración.
-5. Estructurar los ingredientes con cantidades y unidades lógicas (ej: "2 unidades", "100 g", "1 cucharada").
-6. Detallar las instrucciones paso a paso de forma clara.
+4. Estructurar los ingredientes con cantidades y unidades lógicas (ej: "2 unidades", "100 g", "1 cucharada").
+5. Detallar las instrucciones paso a paso de forma clara.
 
 Toda la respuesta debe estar en español y seguir estrictamente este formato JSON:
 
@@ -298,10 +293,6 @@ Toda la respuesta debe estar en español y seguir estrictamente este formato JSO
   "servings": 2,
   "prepTimeMinutes": 15,
   "cookTimeMinutes": 30,
-  "caloriesPerServing": 350,
-  "proteinPerServing": 20,
-  "carbsPerServing": 30,
-  "fatPerServing": 15,
   "ingredients": [
     {
       "name": "nombre del ingrediente",
@@ -360,6 +351,78 @@ Instrucciones: ${instructions}`;
     } catch (e) {
       console.error('Failed to parse LLM response as JSON. Response:', resultText);
       throw new Error('Invalid JSON response from LLM');
+    }
+  }
+
+  static async calculateMacros(title: string, ingredients: string[], servings: number): Promise<{ caloriesPerServing: number | null, proteinPerServing: number | null, carbsPerServing: number | null, fatPerServing: number | null }> {
+    if (!OPENROUTER_API_KEY) {
+      throw new Error('OPENROUTER_API_KEY is not configured');
+    }
+
+    const systemMessage = `Eres un nutricionista experto y preciso. Tu única tarea es calcular los valores nutricionales precisos por cada ración (serving) de una receta.
+Para mejorar la precisión y evitar alucinaciones, debes basarte estrictamente en los ingredientes proporcionados, sus cantidades y el número de raciones.
+Calcula los valores totales de la receta completa y luego divídelos exactamente por el número de raciones indicadas.
+
+Considera:
+- Densidad calórica de cada ingrediente (ej. aceite de oliva = 9 kcal/g, pechuga de pollo = 165 kcal/100g).
+- Cantidades estándar si se usan medidas como "taza", "cucharada", etc.
+- Asume tamaños promedio para unidades sueltas (ej. 1 manzana mediana = 180g).
+
+Devuelve ÚNICAMENTE un objeto JSON válido con este formato:
+{
+  "caloriesPerServing": numero,
+  "proteinPerServing": numero,
+  "carbsPerServing": numero,
+  "fatPerServing": numero
+}
+Si es imposible determinar las macros con cierta precisión, usa valores nulos (null).
+No incluyas absolutamente ninguna explicación ni texto adicional al JSON.`;
+
+    const userMessage = `Por favor calcula las macros para 1 ración basada en estos datos:
+Receta: ${title}
+Raciones totales de la receta: ${servings}
+Ingredientes totales:
+${ingredients.join('\\n')}
+
+Genera el JSON con el valor exacto por 1 ración.`;
+
+    const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://laris-home.local',
+        'X-Title': 'Laris Home'
+      },
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL,
+        messages: [
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: userMessage }
+        ],
+        temperature: 0.1 // Baja temperatura para respuestas más deterministas y precisas.
+      })
+    });
+
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
+    }
+
+    const data = await response.json() as any;
+    let resultText = data.choices[0].message.content;
+
+    try {
+      const startIndex = resultText.indexOf('{');
+      const endIndex = resultText.lastIndexOf('}');
+      if (startIndex === -1 || endIndex === -1) {
+        throw new Error('No JSON object found in response');
+      }
+      const jsonStr = resultText.substring(startIndex, endIndex + 1);
+      return JSON.parse(jsonStr);
+    } catch (e) {
+      console.error('Failed to parse LLM response for macros as JSON. Response:', resultText);
+      return { caloriesPerServing: null, proteinPerServing: null, carbsPerServing: null, fatPerServing: null };
     }
   }
 }

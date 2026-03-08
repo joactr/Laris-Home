@@ -27,7 +27,20 @@ export class RecipeService {
       textContent = textContent.substring(0, 10000) + '...';
     }
 
-    return await OpenRouterService.parseRecipe(textContent);
+    const recipe = await OpenRouterService.parseRecipe(textContent);
+
+    try {
+      const macros = await OpenRouterService.calculateMacros(
+        recipe.title,
+        recipe.ingredients.map(i => i.originalText || i.name),
+        recipe.servings || 1
+      );
+      Object.assign(recipe, macros);
+    } catch (e) {
+      console.error('Failed to calculate macros:', e);
+    }
+
+    return recipe;
   }
 
   static async saveRecipe(householdId: string, recipe: ParsedRecipe & { sourceUrl?: string | null; imageUrl?: string | null }): Promise<any> {
@@ -225,6 +238,18 @@ export class RecipeService {
 
   static async createEnrichedRecipe(householdId: string, basicData: { title: string; ingredients: string[]; instructions: string }): Promise<any> {
     const enriched = await OpenRouterService.enrichRecipe(basicData.title, basicData.ingredients, basicData.instructions);
+    
+    try {
+      const macros = await OpenRouterService.calculateMacros(
+        enriched.title,
+        enriched.ingredients.map(i => i.originalText || i.name),
+        enriched.servings || 1
+      );
+      Object.assign(enriched, macros);
+    } catch (e) {
+      console.error('Failed to calculate macros:', e);
+    }
+
     return await this.saveRecipe(householdId, enriched);
   }
 }

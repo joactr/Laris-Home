@@ -108,19 +108,19 @@ export default function RecipeDetail() {
                 )}
                 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-                    {recipe.servings && <div><strong>{t('recipes.servings')}:</strong> {recipe.servings}</div>}
-                    {recipe.prep_time_minutes && <div><strong>{t('recipes.prepTime')}:</strong> {recipe.prep_time_minutes}m</div>}
-                    {recipe.cook_time_minutes && <div><strong>{t('recipes.cookTime')}:</strong> {recipe.cook_time_minutes}m</div>}
+                    {!!recipe.servings && <div><strong>{t('recipes.servings')}:</strong> {recipe.servings}</div>}
+                    {!!recipe.prep_time_minutes && <div><strong>{t('recipes.prepTime')}:</strong> {recipe.prep_time_minutes}m</div>}
+                    {!!recipe.cook_time_minutes && <div><strong>{t('recipes.cookTime')}:</strong> {recipe.cook_time_minutes}m</div>}
                 </div>
 
                 {hasMacros && (
                     <div style={{ marginBottom: 24 }}>
                         <h3 style={{ marginTop: 0 }}>{t('recipes.nutrition')}</h3>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                            {recipe.calories_per_serving && <div style={{ background: 'rgba(33, 150, 243, 0.15)', color: '#90caf9', border: '1px solid rgba(33, 150, 243, 0.3)', padding: '8px 12px', borderRadius: 8 }}><strong>{recipe.calories_per_serving}</strong> kcal</div>}
-                            {recipe.carbs_per_serving && <div style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#a5d6a7', border: '1px solid rgba(76, 175, 80, 0.3)', padding: '8px 12px', borderRadius: 8 }}><strong>{recipe.carbs_per_serving}g</strong> C</div>}
-                            {recipe.fat_per_serving && <div style={{ background: 'rgba(156, 39, 176, 0.15)', color: '#ce93d8', border: '1px solid rgba(156, 39, 176, 0.3)', padding: '8px 12px', borderRadius: 8 }}><strong>{recipe.fat_per_serving}g</strong> G</div>}
-                            {recipe.protein_per_serving && <div style={{ background: 'rgba(255, 193, 7, 0.15)', color: '#ffe082', border: '1px solid rgba(255, 193, 7, 0.3)', padding: '8px 12px', borderRadius: 8 }}><strong>{recipe.protein_per_serving}g</strong> P</div>}
+                            {!!recipe.calories_per_serving && <div style={{ background: 'rgba(33, 150, 243, 0.15)', color: '#90caf9', border: '1px solid rgba(33, 150, 243, 0.3)', padding: '8px 12px', borderRadius: 8 }}><strong>{recipe.calories_per_serving}</strong> kcal</div>}
+                            {!!recipe.carbs_per_serving && <div style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#a5d6a7', border: '1px solid rgba(76, 175, 80, 0.3)', padding: '8px 12px', borderRadius: 8 }}><strong>{recipe.carbs_per_serving}g</strong> C</div>}
+                            {!!recipe.fat_per_serving && <div style={{ background: 'rgba(156, 39, 176, 0.15)', color: '#ce93d8', border: '1px solid rgba(156, 39, 176, 0.3)', padding: '8px 12px', borderRadius: 8 }}><strong>{recipe.fat_per_serving}g</strong> G</div>}
+                            {!!recipe.protein_per_serving && <div style={{ background: 'rgba(255, 193, 7, 0.15)', color: '#ffe082', border: '1px solid rgba(255, 193, 7, 0.3)', padding: '8px 12px', borderRadius: 8 }}><strong>{recipe.protein_per_serving}g</strong> P</div>}
                         </div>
                     </div>
                 )}

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'laris-home-v8';
+const CACHE_NAME = 'laris-home-v9';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -26,8 +26,16 @@ self.addEventListener('activate', (event) => {
 
 // Fetch: Strategy - Network First, Falling back to Cache
 self.addEventListener('fetch', (event) => {
-  // Never cache API calls or POST requests
-  if (event.request.url.includes('/api/') || event.request.method !== 'GET') {
+  // Never cache API calls, POST requests, or chrome-extension requests
+  if (
+    event.request.url.includes('/api/') || 
+    event.request.method !== 'GET' ||
+    event.request.url.startsWith('chrome-extension://') ||
+    event.request.url.includes('localhost:5173') ||
+    event.request.url.includes('?token=') || // Vite HMR ping
+    event.request.url.includes('/@vite/') || // Vite client
+    event.request.url.includes('/@react-refresh')
+  ) {
     return;
   }
 
