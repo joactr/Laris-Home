@@ -58,7 +58,11 @@ router.post('/recipes', async (req: AuthRequest, res: Response) => {
     // Generate embedding for the user request
     const transcriptEmbedding = await EmbeddingService.generate(parsed.data.transcript);
 
-    // Fetch top 10 relevant recipes using pgvector (cosine distance)
+    // Get configurable limits
+    const dbLimit = parseInt(process.env.VOICE_RECIPE_DB_LIMIT || '10');
+    const suggestionLimit = parseInt(process.env.VOICE_RECIPE_SUGGESTION_LIMIT || '3');
+
+    // Fetch top relevant recipes using pgvector (cosine distance)
     const { rows: recipeRows } = await pool.query(
       `SELECT r.id, r.title, r.instructions, r.prep_time_minutes, 
               array_agg(ri.name) as ingredients,
@@ -68,8 +72,8 @@ router.post('/recipes', async (req: AuthRequest, res: Response) => {
        WHERE r.household_id = $1
        GROUP BY r.id
        ORDER BY distance ASC
-       LIMIT 10`,
-      [householdId, JSON.stringify(transcriptEmbedding)]
+       LIMIT $3`,
+      [householdId, JSON.stringify(transcriptEmbedding), dbLimit]
     );
 
     const existingRecipes = recipeRows.map((r: any) => ({
@@ -80,7 +84,7 @@ router.post('/recipes', async (req: AuthRequest, res: Response) => {
       prep_time_minutes: r.prep_time_minutes
     }));
 
-    const result = await OpenRouterService.parseVoiceRecipes(parsed.data.transcript, existingRecipes);
+    const result = await OpenRouterService.parseVoiceRecipes(parsed.data.transcript, existingRecipes, suggestionLimit);
 
     // Cross-match suggested names with existing ones to ensure ID is present
     for (const suggested of result.recipes) {

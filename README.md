@@ -11,7 +11,8 @@
 
 - **🧠 AI Recipe Extraction**: Transform messy web links into structured, categorized recipes using LLM parsing.
 - **🛒 Smart Shopping**: Automatically generate shopping lists from meal plans and categorize items by household needs.
-- **🎙️ Voice Assistant**: Speak to your app directly! Add items to the shopping list or ask for recipe inspirations seamlessly using Deepgram ASR and OpenRouter AI.
+- 🎙️ **Voice Assistant**: Speak to your app directly! Add items to the shopping list or query your recipes using natural language. Fast, local processing powered by Deepgram ASR and a custom RAG (Retrieval-Augmented Generation) pipeline.
+- 🔍 **Semantic Search**: Find recipes by concepts, not just words. "Something with fish" will find your salmon recipes using local vector embeddings.
 - **📅 Interactive Calendar**: A shared timeline for chores, events, and important household milestones.
 - **📊 Macro-Tracking**: Detailed nutritional breakdown for every recipe, automatically calculated during the import process.
 - **🏗️ Project Management**: Break down complex home improvement or life goals into actionable subtasks.
@@ -28,8 +29,9 @@ Laris Home is built with a focus on **Type Safety**, **Scalability**, and **Deve
 | **Frontend** | React 18 + TypeScript | Vite for lightning-fast HMR, Vanilla CSS for a bespoke design system. |
 | **State** | Zustand | Persistent auth and global application state. |
 | **Backend** | Node.js + Express | RESTful API built with TypeScript and Zod for strict schema validation. |
-| **Database** | PostgreSQL | Relational data integrity with custom migration scripts. |
-| **AI Layer** | OpenRouter & Deepgram | Leveraging advanced LLMs and Real-Time Voice-To-Text (ASR) for unstructured data parsing and Natural Language commands. |
+| **Database** | PostgreSQL + pgvector | Efficient semantic search using vector similarity (cosine distance). |
+| **AI Layer** | OpenRouter & Deepgram | Leveraging advanced LLMs and Real-Time Voice-To-Text (ASR). |
+| **Embeddings** | Transformers.js | **Local execution** of `all-MiniLM-L6-v2` for 100% private, fast vector generation (no external API local calls). |
 | **Infra** | Docker | Seamless containerization for local development and deployment. |
 
 ---
@@ -91,6 +93,12 @@ The core "magic" happens in `server/src/services/openrouter.service.ts`. When a 
 2. An LLM (via OpenRouter) processes the unstructured text into a highly strictly typed JSON schema.
 3. The schema includes ingredients, instructions, and **nutritional macros**.
 4. Data is then persisted to PostgreSQL, linked to the user's household.
+
+### Voice & Semantic Search (RAG)
+Laris Home uses a privacy-first **Retrieval-Augmented Generation (RAG)** approach for recipes:
+1. **Local Embedding**: User voice commands are converted to vectors locally on your server using `MiniLM` (via ONNX Runtime). No recipe data is sent to external APIs for indexing.
+2. **Vector Similarity**: The system queries PostgreSQL using `pgvector` to find the top 10 most relevant recipes based on semantic meaning.
+3. **LLM Context**: Only the selected candidates are sent to the LLM (OpenRouter) as context, ensuring fast responses and high accuracy while keeping your full database private.
 
 ### Database Design
 The schema uses a robust relational model to support multiple households and membership roles, ensuring data isolation and security. Check `server/src/db/migrations/` for the implementation details.

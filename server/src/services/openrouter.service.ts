@@ -198,7 +198,11 @@ Ejemplos:
     }
   }
 
-  static async parseVoiceRecipes(transcript: string, existingRecipes: { id: string, title: string, ingredients: string[], instructions?: string }[] = []): Promise<VoiceRecipesResult> {
+  static async parseVoiceRecipes(
+    transcript: string, 
+    existingRecipes: { id: string, title: string, ingredients: string[], instructions?: string }[] = [],
+    suggestionLimit: number = 3
+  ): Promise<VoiceRecipesResult> {
     if (!OPENROUTER_API_KEY) {
       throw new Error('OPENROUTER_API_KEY is not configured');
     }
@@ -217,7 +221,7 @@ Instrucciones de búsqueda semántica:
 2. Compara esto con mis recetas guardadas. Busca coincidencias semánticas (ej: si pide "pasta con algo de mar" y tengo "Espaguetis Frutti di Mare", es una coincidencia).
 3. Si encuentras una receta que encaja perfectamente o muy bien, DEBES ponerla como primera opción usando EXACTAMENTE el nombre que aparece en mi lista (Contexto).
 4. No te limites solo a nombres exactos; analiza si los ingredientes que el usuario menciona están presentes en alguna receta guardada.
-5. Si no hay recetas guardadas que encajen, sugiere 3 recetas nuevas y creativas basadas en lo que pide el usuario.
+5. Siempre sugiere ${suggestionLimit} recetas nuevas y creativas basadas en lo que pide el usuario, ADEMÁS de las recetas guardadas que coincidan.
 
 Devuelve SOLO JSON:
 {
@@ -230,7 +234,7 @@ Devuelve SOLO JSON:
       "image": "url_imagen"
     }
   ],
-  "message": "Mensaje personalizado (ej: '¡Tu receta de Pasta Boloñesa es perfecta para lo que buscas!' o 'He encontrado varias opciones con los ingredientes que mencionas')"
+  "message": "Mensaje personalizado"
 }`;
 
     const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
