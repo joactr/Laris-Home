@@ -1,5 +1,6 @@
 import pool from '../db/pool';
 import { OpenRouterService, ParsedRecipe } from './openrouter.service';
+import { EmbeddingService } from './embedding.service';
 
 export class RecipeService {
   static async fetchAndParse(url: string): Promise<ParsedRecipe> {
@@ -34,11 +35,19 @@ export class RecipeService {
     try {
       await client.query('BEGIN');
 
+      // Generate embedding
+      const embeddingText = EmbeddingService.prepareRecipeText({
+        title: recipe.title,
+        ingredients: recipe.ingredients.map(i => i.name),
+        instructions: recipe.instructions.join('\n')
+      });
+      const embedding = await EmbeddingService.generate(embeddingText);
+
       const recipeResult = await client.query(
         `INSERT INTO recipes (
           household_id, source_url, image_url, title, description, instructions, servings, prep_time_minutes, cook_time_minutes,
-          calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+          calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, embedding
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
         [
           householdId,
           recipe.sourceUrl,
@@ -52,7 +61,8 @@ export class RecipeService {
           recipe.caloriesPerServing ?? null,
           recipe.proteinPerServing ?? null,
           recipe.carbsPerServing ?? null,
-          recipe.fatPerServing ?? null
+          recipe.fatPerServing ?? null,
+          JSON.stringify(embedding)
         ]
       );
 
@@ -138,12 +148,20 @@ export class RecipeService {
     try {
       await client.query('BEGIN');
 
+      // Generate embedding
+      const embeddingText = EmbeddingService.prepareRecipeText({
+        title: recipe.title,
+        ingredients: recipe.ingredients.map(i => i.name),
+        instructions: recipe.instructions.join('\n')
+      });
+      const embedding = await EmbeddingService.generate(embeddingText);
+
       const recipeResult = await client.query(
         `UPDATE recipes SET
           title = $1, description = $2, instructions = $3, servings = $4, prep_time_minutes = $5, cook_time_minutes = $6,
           calories_per_serving = $7, protein_per_serving = $8, carbs_per_serving = $9, fat_per_serving = $10,
-          image_url = $11, updated_at = NOW()
-        WHERE id = $12 AND household_id = $13 RETURNING *`,
+          image_url = $11, updated_at = NOW(), embedding = $12
+        WHERE id = $13 AND household_id = $14 RETURNING *`,
         [
           recipe.title,
           recipe.description,
@@ -156,6 +174,7 @@ export class RecipeService {
           recipe.carbsPerServing ?? null,
           recipe.fatPerServing ?? null,
           recipe.imageUrl ?? null,
+          JSON.stringify(embedding),
           recipeId,
           householdId
         ]
@@ -202,5 +221,10 @@ export class RecipeService {
     } finally {
       client.release();
     }
+  }
+
+  static async createEnrichedRecipe(householdId: string, basicData: { title: string; ingredients: string[]; instructions: string }): Promise<any> {
+    const enriched = await OpenRouterService.enrichRecipe(basicData.title, basicData.ingredients, basicData.instructions);
+    return await this.saveRecipe(householdId, enriched);
   }
 }

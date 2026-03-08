@@ -1,12 +1,24 @@
 services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: larishome
+      POSTGRES_USER: larishome
+      POSTGRES_PASSWORD: larishome
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
   server:
     build: ./server
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    depends_on:
+      - db
     env_file: .env
     environment:
-      DATABASE_URL: postgres://larishome:larishome@host.docker.internal:5432/larishome
+      DATABASE_URL: postgres://larishome:larishome@db:5432/larishome
       JWT_SECRET: supersecretjwtkey_changeme
       PORT: 4000
     ports:
@@ -29,3 +41,6 @@ services:
       - ./client:/app
       - /app/node_modules
     command: npm run dev -- --host
+
+volumes:
+  pgdata:

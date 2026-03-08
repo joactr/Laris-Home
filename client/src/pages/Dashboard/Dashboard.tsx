@@ -37,10 +37,10 @@ export default function Dashboard() {
                     <div className="dash-section-title">🍽 {t('dashboard.todayMeals')}</div>
                     {data?.meals ? (
                         <div>
-                            {data.meals.breakfast && <div style={{ marginBottom: 6 }}><span style={{ color: 'var(--text2)', fontSize: 12 }}>Desayuno · </span>{data.meals.breakfast}</div>}
-                            {data.meals.lunch && <div style={{ marginBottom: 6 }}><span style={{ color: 'var(--text2)', fontSize: 12 }}>Almuerzo · </span>{data.meals.lunch}</div>}
-                            {data.meals.dinner && <div style={{ marginBottom: 6 }}><span style={{ color: 'var(--text2)', fontSize: 12 }}>Cena · </span>{data.meals.dinner}</div>}
-                            {data.meals.snack && <div><span style={{ color: 'var(--text2)', fontSize: 12 }}>Merienda · </span>{data.meals.snack}</div>}
+                            {data.meals.breakfast && <div style={{ marginBottom: 6 }}><span style={{ color: 'var(--text2)', fontSize: 12 }}>{t('meals.breakfast')} · </span>{data.meals.breakfast}</div>}
+                            {data.meals.lunch && <div style={{ marginBottom: 6 }}><span style={{ color: 'var(--text2)', fontSize: 12 }}>{t('meals.lunch')} · </span>{data.meals.lunch}</div>}
+                            {data.meals.dinner && <div style={{ marginBottom: 6 }}><span style={{ color: 'var(--text2)', fontSize: 12 }}>{t('meals.dinner')} · </span>{data.meals.dinner}</div>}
+                            {data.meals.snack && <div><span style={{ color: 'var(--text2)', fontSize: 12 }}>{t('meals.snack')} · </span>{data.meals.snack}</div>}
                         </div>
                     ) : <p className="empty-state" style={{ padding: '10px 0' }}>{t('dashboard.noMeals')}</p>}
                     <button className="btn btn-ghost btn-sm" style={{ marginTop: 10 }} onClick={() => navigate('/meals')}>{t('dashboard.editMeals')}</button>

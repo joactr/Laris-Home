@@ -33,6 +33,7 @@ export interface VoiceShoppingResult {
 }
 
 export interface RecipeSuggestion {
+  id?: string;
   name: string;
   ingredients: string[];
   instructions: string;
@@ -139,7 +140,7 @@ ${content}`;
     }
 
     const systemMessage = `Eres un asistente de compras. Analiza esta transcripción del usuario y devuelve SOLO JSON válido:
-Usuario dijo: "\${transcript}"
+Usuario dijo: "${transcript}"
 
 Extrae:
 - Productos mencionados (sinónimos OK: manzana=apple, etc.)
@@ -197,30 +198,39 @@ Ejemplos:
     }
   }
 
-  static async parseVoiceRecipes(transcript: string): Promise<VoiceRecipesResult> {
+  static async parseVoiceRecipes(transcript: string, existingRecipes: { id: string, title: string, ingredients: string[], instructions?: string }[] = []): Promise<VoiceRecipesResult> {
     if (!OPENROUTER_API_KEY) {
       throw new Error('OPENROUTER_API_KEY is not configured');
     }
 
-    const systemMessage = `Eres experto en recetas. Analiza: "\${transcript}"
+    const recipesContext = existingRecipes.map(r => 
+      `ID: ${r.id} | Título: ${r.title} | Ingredientes: ${r.ingredients.join(', ')}${r.instructions ? ` | Instrucciones: ${r.instructions.substring(0, 100)}...` : ''}`
+    ).join('\n');
 
-Casos:
-- "Me apetece receta con X, Y, Z" -> Sugiere 3 recetas con esos ingredientes
-- "Tengo pollo, arroz, cebolla" -> 3 recetas con TODOS esos ingredientes
-- "Receta rápida vegetariana" -> 3 opciones fitting
+    const systemMessage = `Eres experto en recetas y búsqueda semántica. Analiza la petición del usuario: "${transcript}"
+
+Mis recetas guardadas (Contexto):
+${recipesContext || 'No hay recetas guardadas aún.'}
+
+Instrucciones de búsqueda semántica:
+1. Analiza cuidadosamente los ingredientes y el tipo de plato solicitado por el usuario.
+2. Compara esto con mis recetas guardadas. Busca coincidencias semánticas (ej: si pide "pasta con algo de mar" y tengo "Espaguetis Frutti di Mare", es una coincidencia).
+3. Si encuentras una receta que encaja perfectamente o muy bien, DEBES ponerla como primera opción usando EXACTAMENTE el nombre que aparece en mi lista (Contexto).
+4. No te limites solo a nombres exactos; analiza si los ingredientes que el usuario menciona están presentes en alguna receta guardada.
+5. Si no hay recetas guardadas que encajen, sugiere 3 recetas nuevas y creativas basadas en lo que pide el usuario.
 
 Devuelve SOLO JSON:
 {
   "recipes": [
     {
-      "name": "Nombre atractivo",
+      "name": "Nombre de la receta (USA EL NOMBRE EXACTO SI EXISTE EN MI LISTA)",
       "ingredients": ["ing1", "ing2"],
       "instructions": "Paso 1. Paso 2.",
       "time": "15 min",
       "image": "url_imagen"
     }
   ],
-  "message": "¡Aquí tienes opciones perfectas!"
+  "message": "Mensaje personalizado (ej: '¡Tu receta de Pasta Boloñesa es perfecta para lo que buscas!' o 'He encontrado varias opciones con los ingredientes que mencionas')"
 }`;
 
     const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
@@ -256,6 +266,93 @@ Devuelve SOLO JSON:
       }
       const jsonStr = resultText.substring(startIndex, endIndex + 1);
       return JSON.parse(jsonStr) as VoiceRecipesResult;
+    } catch (e) {
+      console.error('Failed to parse LLM response as JSON. Response:', resultText);
+      throw new Error('Invalid JSON response from LLM');
+    }
+  }
+
+  static async enrichRecipe(title: string, ingredients: string[], instructions: string): Promise<ParsedRecipe> {
+    if (!OPENROUTER_API_KEY) {
+      throw new Error('OPENROUTER_API_KEY is not configured');
+    }
+
+    const systemMessage = `Eres un experto chef y nutricionista. Tu tarea es recibir una receta básica (título, lista simple de ingredientes e instrucciones breves) y devolver una versión detallada y profesional.
+Debes:
+1. Mantener el título.
+2. Expandir la descripción para que sea atractiva.
+3. Estimar de forma realista para cuántas personas es (servings), tiempo de preparación y cocción.
+4. Estimar calorías y macronutrientes (proteínas, carbohidratos, grasas) por ración.
+5. Estructurar los ingredientes con cantidades y unidades lógicas (ej: "2 unidades", "100 g", "1 cucharada").
+6. Detallar las instrucciones paso a paso de forma clara.
+
+Toda la respuesta debe estar en español y seguir estrictamente este formato JSON:
+
+{
+  "title": "string",
+  "description": "string",
+  "servings": 2,
+  "prepTimeMinutes": 15,
+  "cookTimeMinutes": 30,
+  "caloriesPerServing": 350,
+  "proteinPerServing": 20,
+  "carbsPerServing": 30,
+  "fatPerServing": 15,
+  "ingredients": [
+    {
+      "name": "nombre del ingrediente",
+      "originalText": "cantidad y unidad + nombre",
+      "quantity": 1,
+      "unit": "unidad",
+      "notes": "notas opcionales"
+    }
+  ],
+  "instructions": [
+    "Paso 1...",
+    "Paso 2..."
+  ]
+}
+
+No añadas ningún texto antes ni después del JSON.`;
+
+    const userMessage = `Receta básica:
+Título: ${title}
+Ingredientes: ${ingredients.join(', ')}
+Instrucciones: ${instructions}`;
+
+    const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://laris-home.local',
+        'X-Title': 'Laris Home'
+      },
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL,
+        messages: [
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: userMessage }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
+    }
+
+    const data = await response.json() as any;
+    let resultText = data.choices[0].message.content;
+
+    try {
+      const startIndex = resultText.indexOf('{');
+      const endIndex = resultText.lastIndexOf('}');
+      if (startIndex === -1 || endIndex === -1) {
+        throw new Error('No JSON object found in response');
+      }
+      const jsonStr = resultText.substring(startIndex, endIndex + 1);
+      return JSON.parse(jsonStr) as ParsedRecipe;
     } catch (e) {
       console.error('Failed to parse LLM response as JSON. Response:', resultText);
       throw new Error('Invalid JSON response from LLM');

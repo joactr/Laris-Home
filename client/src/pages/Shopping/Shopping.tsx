@@ -74,10 +74,10 @@ export default function Shopping() {
 
     const deleteList = async (id: string) => {
         if (lists.length <= 1) {
-            alert('No puedes eliminar la única lista que tienes.');
+            alert(t('shopping.deleteListOnly'));
             return;
         }
-        if (!window.confirm('¿Eliminar esta lista y todos sus ítems?')) return;
+        if (!window.confirm(t('shopping.deleteListConfirm'))) return;
         await api.shopping.deleteList(id);
         const l = await api.shopping.getLists();
         setLists(l);
@@ -131,7 +131,7 @@ export default function Shopping() {
                 <div className="modal-overlay" onClick={() => setPendingItems(null)}>
                     <div className="modal" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <span className="modal-title">Confirmar items</span>
+                            <span className="modal-title">{t('shopping.confirmItems')}</span>
                         </div>
                         <div style={{ padding: '0 16px 16px' }}>
                             <p style={{ marginBottom: 16 }}>{voiceMessage}</p>
@@ -152,7 +152,7 @@ export default function Shopping() {
                                     setPendingItems(null);
                                     loadItems();
                                     setLoading(false);
-                                }}>Confirmar items</button>
+                                }}>{t('shopping.confirmBtn')}</button>
                             </div>
                         </div>
                     </div>
@@ -171,7 +171,7 @@ export default function Shopping() {
                     border: 'none', color: '#fff', cursor: 'pointer'
                 }}
                 onClick={() => {
-                    if (!activeListId) { alert('Crea una lista de compras primero'); return; }
+                    if (!activeListId) { alert(t('shopping.createListFirst')); return; }
                     if (isListening) {
                         stopListening();
                     } else {
@@ -180,12 +180,12 @@ export default function Shopping() {
                                 const res = await api.voice.processShopping(finalText);
                                 if (res.items && res.items.length) {
                                     setPendingItems(res.items);
-                                    setVoiceMessage(res.message || 'Items detectados:');
+                                    setVoiceMessage(res.message || t('shopping.detectedItems'));
                                 } else {
-                                    alert('No se detectaron items.');
+                                    alert(t('voice.error.noItems'));
                                 }
                             } catch (err: any) {
-                                alert(err.message || 'Error procesando voz');
+                                alert(err.message || t('common.error'));
                             }
                         });
                     }
@@ -202,10 +202,10 @@ export default function Shopping() {
                     zIndex: 100, maxWidth: 300, border: '1px solid var(--border)'
                 }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                        {isProcessing ? 'Procesando con IA...' : 'Escuchando...'}
+                        {isProcessing ? t('voice.processing') : t('voice.listening')}
                     </div>
                     <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                        {transcript || 'Di algo como: "Añade 3 manzanas y 2 yogures"'}
+                        {transcript || t('voice.placeholder.shopping')}
                     </div>
                 </div>
             )}
@@ -232,7 +232,7 @@ export default function Shopping() {
                             <button 
                                 onClick={(e) => { e.stopPropagation(); deleteList(l.id); }}
                                 style={{ background: 'transparent', border: 'none', color: 'inherit', opacity: 0.7, padding: 0, cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
-                                title="Eliminar lista"
+                                title={t('common.delete')}
                             >
                                 ×
                             </button>

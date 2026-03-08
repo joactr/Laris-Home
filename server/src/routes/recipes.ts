@@ -55,6 +55,34 @@ router.post('/import-from-url', async (req: AuthRequest, res: Response) => {
   }
 });
 
+const CreateEnrichedSchema = z.object({
+  title: z.string(),
+  ingredients: z.array(z.string()),
+  instructions: z.string()
+});
+
+// Create enriched recipe
+router.post('/create-enriched', async (req: AuthRequest, res: Response) => {
+  const parsed = CreateEnrichedSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    const householdId = req.user?.householdId;
+    if (!householdId) {
+      res.status(400).json({ error: 'Household ID missing from user session' });
+      return;
+    }
+    const saved = await RecipeService.createEnrichedRecipe(householdId, parsed.data);
+    res.json(saved);
+  } catch (err: any) {
+    console.error('Enrichment/Save Error:', err);
+    res.status(500).json({ error: 'Error al enriquecer y guardar la receta.' });
+  }
+});
+
 // Save recipe
 router.post('/', async (req: AuthRequest, res: Response) => {
   const parsed = RecipeSaveSchema.safeParse(req.body);

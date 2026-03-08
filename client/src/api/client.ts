@@ -87,6 +87,7 @@ export const api = {
         delete: (id: string) => request<any>(`/recipes/${id}`, { method: 'DELETE' }),
         addToShoppingList: (recipeId: string, listId: string, ingredientIds: string[]) =>
             request<any>(`/recipes/${recipeId}/add-to-shopping-list`, { method: 'POST', body: JSON.stringify({ listId, ingredientIds }) }),
+        createEnriched: (data: object) => request<any>('/recipes/create-enriched', { method: 'POST', body: JSON.stringify(data) }),
     },
     projects: {
         getAll: () => request<any[]>('/projects'),

@@ -13,6 +13,8 @@ export default function Recipes() {
     const [suggestedRecipes, setSuggestedRecipes] = useState<any[] | null>(null);
     const [voiceMessage, setVoiceMessage] = useState<string>('');
 
+    const [savingIndex, setSavingIndex] = useState<number | null>(null);
+
     const load = async () => {
         const data = await api.recipes.getAll();
         setRecipes(data);
@@ -90,7 +92,7 @@ export default function Recipes() {
                 <div className="modal-overlay" style={{ alignItems: 'flex-start', paddingTop: '10vh', overflowY: 'auto' }} onClick={() => setSuggestedRecipes(null)}>
                     <div className="modal" style={{ width: '90%', maxWidth: 600, margin: 'auto' }} onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <span className="modal-title">Recetas sugeridas</span>
+                            <span className="modal-title">{t('recipes.suggestedTitle')}</span>
                         </div>
                         <div style={{ padding: '0 16px 16px', maxHeight: '70vh', overflowY: 'auto' }}>
                             <p style={{ marginBottom: 16 }}>{voiceMessage}</p>
@@ -99,27 +101,39 @@ export default function Recipes() {
                                     <div key={idx} style={{ background: 'var(--bg-secondary)', padding: "12px", borderRadius: 8 }}>
                                         <h3 style={{ margin: '0 0 8px 0' }}>{r.name}</h3>
                                         <div style={{ fontSize: 13, marginBottom: 8 }}>⏱ {r.time}</div>
-                                        <div style={{ fontSize: 13, marginBottom: 8 }}><strong>Ingredientes:</strong> {r.ingredients.join(', ')}</div>
+                                        <div style={{ fontSize: 13, marginBottom: 8 }}><strong>{t('recipes.ingredients')}:</strong> {r.ingredients.join(', ')}</div>
                                         <p style={{ fontSize: 14, margin: '0 0 12px 0', lineHeight: 1.4 }}>{r.instructions}</p>
-                                        <button className="btn btn-secondary btn-sm" onClick={async () => {
-                                            if (confirm(`¿Añadir receta "${r.name}" a tus recetas?`)) {
-                                                try {
-                                                    await api.recipes.save({
-                                                        title: r.name,
-                                                        description: r.instructions,
-                                                        prepTimeMinutes: parseInt(r.time) || 15,
-                                                        instructions: [r.instructions],
-                                                        ingredients: r.ingredients.map((i: string) => ({ name: i, originalText: i }))
-                                                    });
-                                                    alert('Receta guardada.');
-                                                    load();
-                                                } catch(e) {
-                                                    alert('Error guardando receta');
-                                                }
-                                            }
-                                        }}>
-                                            Guardar receta
-                                        </button>
+                                        {r.id ? (
+                                            <button className="btn btn-primary btn-sm" onClick={() => navigate(`/recipes/${r.id}`)}>
+                                                {t('recipes.existingMatching')}
+                                            </button>
+                                        ) : (
+                                            <button 
+                                                className="btn btn-secondary btn-sm" 
+                                                disabled={savingIndex !== null}
+                                                onClick={async () => {
+                                                    if (confirm(t('recipes.saveNewAiConfirm', `¿Añadir receta "${r.name}" a tus recetas? Se generarán detalles automáticamente con IA.`).replace('{{name}}', r.name))) {
+                                                        try {
+                                                            setSavingIndex(idx);
+                                                            await api.recipes.createEnriched({
+                                                                title: r.name,
+                                                                ingredients: r.ingredients,
+                                                                instructions: r.instructions,
+                                                            });
+                                                            alert(t('recipes.saveNewAiSuccess'));
+                                                            load();
+                                                            setSuggestedRecipes(null);
+                                                        } catch(e) {
+                                                            alert(t('common.error'));
+                                                        } finally {
+                                                            setSavingIndex(null);
+                                                        }
+                                                    }
+                                                }}
+                                            >
+                                                {savingIndex === idx ? t('recipes.savingAi') : t('recipes.saveNewAi')}
+                                            </button>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -148,12 +162,12 @@ export default function Recipes() {
                                 const res = await api.voice.processRecipes(finalText);
                                 if (res.recipes && res.recipes.length) {
                                     setSuggestedRecipes(res.recipes);
-                                    setVoiceMessage(res.message || 'Recetas encontradas:');
+                                    setVoiceMessage(res.message || t('recipes.suggestedTitle'));
                                 } else {
-                                    alert('No se detectaron recetas.');
+                                    alert(t('voice.error.noRecipes'));
                                 }
                             } catch (err: any) {
-                                alert(err.message || 'Error procesando voz');
+                                alert(err.message || t('common.error'));
                             }
                         });
                     }
@@ -170,10 +184,10 @@ export default function Recipes() {
                     zIndex: 100, maxWidth: 300, border: '1px solid var(--border)'
                 }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                        {isProcessing ? 'Procesando con IA...' : 'Pensando opciones...'}
+                        {isProcessing ? t('voice.processing') : t('voice.thinking')}
                     </div>
                     <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                        {transcript || 'Di algo como: "Tengo pollo y arroz, ¿qué cocino?"'}
+                        {transcript || t('voice.placeholder.recipes')}
                     </div>
                 </div>
             )}

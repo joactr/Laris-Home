@@ -36,7 +36,7 @@ export default function Chores() {
 
     const deleteInstance = async (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
-        if (window.confirm('¿Seguro que quieres borrar esta tarea y todas las futuras (las pasadas se mantendrán)?')) {
+        if (window.confirm(t('chores.deleteConfirm'))) {
             await api.chores.deleteInstance(id);
             load();
         }

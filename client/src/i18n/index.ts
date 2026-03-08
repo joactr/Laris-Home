@@ -158,7 +158,39 @@ export const translations: Record<string, Record<string, string>> = {
     'recipes.reviewAndSave': 'Revisar y Guardar',
     'recipes.save': 'Guardar Receta',
     'recipes.addToShoppingList': 'Añadir al carrito',
-    'recipes.noRecipes': 'No hay recetas.'
+    'recipes.noRecipes': 'No hay recetas.',
+    'recipes.suggestedTitle': 'Recetas sugeridas',
+    'recipes.existingMatching': 'Ver receta existente',
+    'recipes.saveNewAi': 'Guardar nueva receta (IA)',
+    'recipes.saveNewAiConfirm': '¿Añadir receta "{{name}}" a tus recetas? Se generarán detalles automáticamente con IA.',
+    'recipes.saveNewAiSuccess': 'Receta guardada con detalles generados por IA.',
+    'recipes.savingAi': 'Guardando con IA...',
+
+    // Voice
+    'voice.listening': 'Escuchando...',
+    'voice.processing': 'Procesando con IA...',
+    'voice.thinking': 'Pensando opciones...',
+    'voice.placeholder.shopping': 'Di algo como: "Añade 3 manzanas y 2 yogures"',
+    'voice.placeholder.recipes': 'Di algo como: "Tengo pollo y arroz, ¿qué cocino?"',
+    'voice.error.noItems': 'No se detectaron items.',
+    'voice.error.noRecipes': 'No se detectaron recetas.',
+
+    // Shopping
+    'shopping.confirmItems': 'Confirmar items',
+    'shopping.detectedItems': 'Items detectados:',
+    'shopping.confirmBtn': 'Confirmar items',
+    'shopping.deleteListConfirm': '¿Eliminar esta lista y todos sus ítems?',
+    'shopping.deleteListOnly': 'No puedes eliminar la única lista que tienes.',
+    'shopping.createListFirst': 'Crea una lista de compras primero',
+
+    // Chores
+    'chores.deleteConfirm': '¿Seguro que quieres borrar esta tarea y todas las futuras (las pasadas se mantendrán)?',
+
+    // Meals
+    'meals.breakfast': 'Desayuno',
+    'meals.lunch': 'Almuerzo',
+    'meals.dinner': 'Cena',
+    'meals.snack': 'Merienda'
   }
 };
 
