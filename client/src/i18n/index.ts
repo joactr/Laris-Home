@@ -11,6 +11,8 @@ export const translations: Record<string, Record<string, string>> = {
     'nav.logout': 'Cerrar sesión',
 
     // Generic
+    'common.title': 'Título',
+    'common.create': 'Crear',
     'common.add': 'Añadir',
     'common.save': 'Guardar',
     'common.cancel': 'Cancelar',
@@ -96,6 +98,11 @@ export const translations: Record<string, Record<string, string>> = {
     'chores.filterPartner': 'Pareja',
     'chores.newRecurring': 'Nueva tarea recurrente',
     'chores.location': 'Lugar / Habitación',
+    'chores.startDate': 'Fecha de inicio',
+    'chores.interval': 'Repetir cada',
+    'chores.intervalDays': 'días',
+    'chores.intervalWeeks': 'semanas',
+    'chores.intervalMonths': 'meses',
     'chores.recurrence': 'Recurrencia',
     'chores.daily': 'Diaria',
     'chores.weekly': 'Semanal',

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../api/client';
 import { useAuthStore } from '../../store/auth';
 import { t } from '../../i18n';
+import { useVoiceAssistant } from '../../hooks/useVoiceAssistant';
 
 type Filter = 'all' | 'active' | 'completed';
 
@@ -16,6 +17,10 @@ export default function Shopping() {
     const [showNewList, setShowNewList] = useState(false);
     const [newListName, setNewListName] = useState('');
     const user = useAuthStore((s) => s.user);
+
+    const { isListening, isProcessing, transcript, error: voiceError, startListening, stopListening } = useVoiceAssistant();
+    const [pendingItems, setPendingItems] = useState<any[] | null>(null);
+    const [voiceMessage, setVoiceMessage] = useState<string>('');
 
     const loadLists = useCallback(async () => {
         const l = await api.shopping.getLists();
@@ -118,6 +123,98 @@ export default function Shopping() {
                             </div>
                         </form>
                     </div>
+                </div>
+            )}
+
+            {/* Voice Confirmation Modal */}
+            {pendingItems && (
+                <div className="modal-overlay" onClick={() => setPendingItems(null)}>
+                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <span className="modal-title">Confirmar items</span>
+                        </div>
+                        <div style={{ padding: '0 16px 16px' }}>
+                            <p style={{ marginBottom: 16 }}>{voiceMessage}</p>
+                            <ul style={{ background: 'var(--bg-secondary)', padding: "12px 24px", borderRadius: 8, marginBottom: 16 }}>
+                                {pendingItems.map((pi, idx) => (
+                                    <li key={idx} style={{ marginBottom: 4 }}>
+                                        <strong>{pi.quantity}x</strong> {pi.name}
+                                    </li>
+                                ))}
+                            </ul>
+                            <div className="modal-actions">
+                                <button type="button" className="btn btn-secondary" onClick={() => setPendingItems(null)}>{t('common.cancel')}</button>
+                                <button type="button" className="btn btn-primary" onClick={async () => {
+                                    setLoading(true);
+                                    for (const item of pendingItems) {
+                                        await api.shopping.addItem(activeListId, { name: item.name, quantity: item.quantity });
+                                    }
+                                    setPendingItems(null);
+                                    loadItems();
+                                    setLoading(false);
+                                }}>Confirmar items</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Floating Voice Button */}
+            <button 
+                className="btn btn-primary" 
+                style={{ 
+                    position: 'fixed', bottom: 20, right: 20, borderRadius: '50%', width: 60, height: 60,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, zIndex: 100,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                    background: isListening ? '#f44336' : isProcessing ? '#ff9800' : 'var(--primary)',
+                    animation: isListening || isProcessing ? 'pulse 2s infinite' : 'none',
+                    border: 'none', color: '#fff', cursor: 'pointer'
+                }}
+                onClick={() => {
+                    if (!activeListId) { alert('Crea una lista de compras primero'); return; }
+                    if (isListening) {
+                        stopListening();
+                    } else {
+                        startListening(async (finalText) => {
+                            try {
+                                const res = await api.voice.processShopping(finalText);
+                                if (res.items && res.items.length) {
+                                    setPendingItems(res.items);
+                                    setVoiceMessage(res.message || 'Items detectados:');
+                                } else {
+                                    alert('No se detectaron items.');
+                                }
+                            } catch (err: any) {
+                                alert(err.message || 'Error procesando voz');
+                            }
+                        });
+                    }
+                }}
+            >
+                {isProcessing ? '⏳' : isListening ? '⏹' : '🎤'}
+            </button>
+            
+            {/* Voice Status Overlay */}
+            {(isListening || isProcessing) && (
+                <div style={{
+                    position: 'fixed', bottom: 90, right: 20, background: 'var(--bg-card)', 
+                    padding: '12px 16px', borderRadius: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                    zIndex: 100, maxWidth: 300, border: '1px solid var(--border)'
+                }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                        {isProcessing ? 'Procesando con IA...' : 'Escuchando...'}
+                    </div>
+                    <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                        {transcript || 'Di algo como: "Añade 3 manzanas y 2 yogures"'}
+                    </div>
+                </div>
+            )}
+            {voiceError && (
+                <div style={{
+                    position: 'fixed', top: 20, right: 20, background: '#f44336', color: '#fff',
+                    padding: '12px 16px', borderRadius: 8, zIndex: 1000, boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+                }}>
+                    {voiceError}
                 </div>
             )}
 

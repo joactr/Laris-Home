@@ -8,7 +8,8 @@ import mealsRouter from './routes/meals';
 import projectsRouter from './routes/projects';
 import dashboardRouter from './routes/dashboard';
 import recipesRouter from './routes/recipes';
-
+import pushRouter from './routes/push';
+import voiceRouter from './routes/voice';
 const app = express();
 
 app.use(cors());
@@ -26,7 +27,8 @@ app.use('/api/meals', mealsRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/recipes', recipesRouter);
-
+app.use('/api/push', pushRouter);
+app.use('/api/voice', voiceRouter);
 // Error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error(err);

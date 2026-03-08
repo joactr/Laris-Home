@@ -5,7 +5,7 @@ export default defineConfig({
     plugins: [react()],
     server: {
         port: 5173,
-        allowedHosts: ['casa.acostajm.com'],
+        allowedHosts: true,
         proxy: {
             '/api': { target: 'http://server:4000', changeOrigin: true },
         },

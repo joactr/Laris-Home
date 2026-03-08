@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { sendPushNotification } from '../services/push.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -81,6 +82,15 @@ router.post('/:projectId/tasks', async (req: AuthRequest, res: Response) => {
         req.user!.id, d.assigned_user_id ?? null, d.due_date ?? null]
     );
     res.status(201).json(rows[0]);
+
+    // Send push notification if assigned to someone else
+    if (d.assigned_user_id && d.assigned_user_id !== req.user!.id) {
+        sendPushNotification(d.assigned_user_id, {
+            title: 'Nueva tarea asignada',
+            body: `${req.user!.name} te ha asignado: ${d.title}`,
+            url: `/projects/${req.params.projectId}`
+        });
+    }
 });
 
 router.patch('/tasks/:id', async (req: AuthRequest, res: Response) => {
@@ -95,7 +105,17 @@ router.patch('/tasks/:id', async (req: AuthRequest, res: Response) => {
      WHERE id=$7 RETURNING *`,
         [d.title, d.description, d.status, d.priority, d.assigned_user_id, d.due_date, req.params.id]
     );
-    res.json(rows[0]);
+    const task = rows[0];
+    res.json(task);
+
+    // Send push notification if assignment changed or updated and it's not the current user
+    if (d.assigned_user_id && d.assigned_user_id !== req.user!.id) {
+        sendPushNotification(d.assigned_user_id, {
+            title: 'Tarea actualizada/asignada',
+            body: `${req.user!.name} te ha asignado o actualizado: ${task.title}`,
+            url: `/projects` // Could be more specific if we had project_id here
+        });
+    }
 });
 
 router.delete('/tasks/:id', async (req: AuthRequest, res: Response) => {

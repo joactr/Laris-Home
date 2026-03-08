@@ -11,6 +11,7 @@
 
 - **🧠 AI Recipe Extraction**: Transform messy web links into structured, categorized recipes using LLM parsing.
 - **🛒 Smart Shopping**: Automatically generate shopping lists from meal plans and categorize items by household needs.
+- **🎙️ Voice Assistant**: Speak to your app directly! Add items to the shopping list or ask for recipe inspirations seamlessly using Deepgram ASR and OpenRouter AI.
 - **📅 Interactive Calendar**: A shared timeline for chores, events, and important household milestones.
 - **📊 Macro-Tracking**: Detailed nutritional breakdown for every recipe, automatically calculated during the import process.
 - **🏗️ Project Management**: Break down complex home improvement or life goals into actionable subtasks.
@@ -28,7 +29,7 @@ Laris Home is built with a focus on **Type Safety**, **Scalability**, and **Deve
 | **State** | Zustand | Persistent auth and global application state. |
 | **Backend** | Node.js + Express | RESTful API built with TypeScript and Zod for strict schema validation. |
 | **Database** | PostgreSQL | Relational data integrity with custom migration scripts. |
-| **AI Layer** | OpenRouter API | Leveraging advanced LLMs for unstructured data parsing. |
+| **AI Layer** | OpenRouter & Deepgram | Leveraging advanced LLMs and Real-Time Voice-To-Text (ASR) for unstructured data parsing and Natural Language commands. |
 | **Infra** | Docker | Seamless containerization for local development and deployment. |
 
 ---
@@ -47,10 +48,24 @@ Laris Home is built with a focus on **Type Safety**, **Scalability**, and **Deve
    cd laris-home
    ```
 
-2. Configure environment variables (refer to `.env` template):
+2. Configure environment variables. Copy the `.env.example` file to `.env` in the root directory:
    ```bash
-   # Add your OpenRouter API Key
-   OPENROUTER_API_KEY=your_key_here
+   cp .env.example .env
+   ```
+   
+   Then open `.env` and configure your API keys:
+   ```bash
+   # Add your OpenRouter API Key and preferred model
+   OPENROUTER_API_KEY=your_openrouter_key_here
+   OPENROUTER_MODEL=minimax/minimax-m2.5
+   
+   # Add your Deepgram API Key for Voice Control
+   DEEPGRAM_API_KEY=your_deepgram_key_here
+   DEEPGRAM_LANGUAGE=es
+   DEEPGRAM_ENDPOINTING=2000
+   
+   # Setup Server Settings
+   JWT_SECRET=your_jwt_secret_here
    ```
 
 3. Spin up the entire stack:

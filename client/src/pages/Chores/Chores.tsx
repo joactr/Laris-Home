@@ -12,7 +12,7 @@ export default function Chores() {
     const [filter, setFilter] = useState<'all' | 'mine' | 'partner'>('all');
     const [showTemplateModal, setShowTemplateModal] = useState(false);
     const [members, setMembers] = useState<any[]>([]);
-    const [tForm, setTForm] = useState({ title: '', location: '', recurrence_type: 'weekly', recurrence_days: [1], points: 2, default_assignee_user_id: '' });
+    const [tForm, setTForm] = useState({ title: '', location: '', recurrence_type: 'weekly', recurrence_days: [1], points: 2, default_assignee_user_id: '', start_date: format(new Date(), 'yyyy-MM-dd'), recurrence_interval: 1 });
 
     const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
     const weekEnd = addDays(weekStart, 6);
@@ -34,9 +34,33 @@ export default function Chores() {
         load();
     };
 
+    const deleteInstance = async (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (window.confirm('¿Seguro que quieres borrar esta tarea y todas las futuras (las pasadas se mantendrán)?')) {
+            await api.chores.deleteInstance(id);
+            load();
+        }
+    };
+
     const createTemplate = async (e: React.FormEvent) => {
         e.preventDefault();
-        await api.chores.createTemplate({ ...tForm, default_assignee_user_id: tForm.default_assignee_user_id || null });
+        
+        let recDays = [1];
+        if (tForm.start_date) {
+            const [y, m, d] = tForm.start_date.split('-').map(Number);
+            const localDate = new Date(y, m - 1, d);
+            if (tForm.recurrence_type === 'weekly') {
+                recDays = [localDate.getDay()]; // 0 (Sun) to 6 (Sat)
+            } else if (tForm.recurrence_type === 'monthly') {
+                recDays = [localDate.getDate()]; // 1 to 31
+            }
+        }
+
+        await api.chores.createTemplate({ 
+            ...tForm, 
+            recurrence_days: recDays,
+            default_assignee_user_id: tForm.default_assignee_user_id || null 
+        });
         setShowTemplateModal(false);
         load();
     };
@@ -103,12 +127,17 @@ export default function Chores() {
                             <div key={inst.id} className={`chore-card ${inst.status}`}
                                 onClick={() => setStatus(inst.id, inst.status === 'done' ? 'pending' : 'done')}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4 }}>
-                                    <div className="chore-title">{inst.title}</div>
-                                    {inst.assigned_color && (
-                                        <span className="avatar" style={{ background: inst.assigned_color, fontSize: 9, width: 18, height: 18 }}>
-                                            {inst.assigned_name?.[0]}
-                                        </span>
-                                    )}
+                                    <div className="chore-title" style={{ flex: 1 }}>{inst.title}</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        {inst.assigned_color && (
+                                            <span className="avatar" style={{ background: inst.assigned_color, fontSize: 9, width: 18, height: 18 }}>
+                                                {inst.assigned_name?.[0]}
+                                            </span>
+                                        )}
+                                        <button className="btn-icon" onClick={(e) => deleteInstance(inst.id, e)} style={{ padding: 2, fontSize: 14, opacity: 0.6, background: 'none', border: 'none', cursor: 'pointer' }}>
+                                            🗑️
+                                        </button>
+                                    </div>
                                 </div>
                                 <div className="chore-points">⭐ {inst.points} pts</div>
                                 <div style={{ fontSize: 10, marginTop: 3, color: inst.status === 'done' ? 'var(--green)' : 'var(--text2)' }}>
@@ -133,12 +162,18 @@ export default function Chores() {
                                 <label className="label">{t('common.title')}</label>
                                 <input id="chore-title" className="input" value={tForm.title} onChange={e => setTForm(f => ({ ...f, title: e.target.value }))} required autoFocus />
                             </div>
-                            <div className="form-group">
-                                <label className="label">{t('chores.location')}</label>
-                                <input className="input" value={tForm.location} onChange={e => setTForm(f => ({ ...f, location: e.target.value }))} />
+                            <div className="form-group field-row">
+                                <div style={{ flex: 1 }}>
+                                    <label className="label">{t('chores.location')}</label>
+                                    <input className="input" value={tForm.location} onChange={e => setTForm(f => ({ ...f, location: e.target.value }))} />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <label className="label">{t('chores.startDate')}</label>
+                                    <input type="date" className="input" value={tForm.start_date} onChange={e => setTForm(f => ({ ...f, start_date: e.target.value }))} required />
+                                </div>
                             </div>
                             <div className="form-group field-row">
-                                <div>
+                                <div style={{ flex: 1 }}>
                                     <label className="label">{t('chores.recurrence')}</label>
                                     <select className="input" value={tForm.recurrence_type} onChange={e => setTForm(f => ({ ...f, recurrence_type: e.target.value }))}>
                                         <option value="daily">{t('chores.daily')}</option>
@@ -146,7 +181,16 @@ export default function Chores() {
                                         <option value="monthly">{t('chores.monthly')}</option>
                                     </select>
                                 </div>
-                                <div>
+                                <div style={{ flex: 1 }}>
+                                    <label className="label">{t('chores.interval')}</label>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <input className="input" type="number" min={1} max={99} value={tForm.recurrence_interval} onChange={e => setTForm(f => ({ ...f, recurrence_interval: parseInt(e.target.value) || 1 }))} style={{ width: 60 }} />
+                                        <span style={{ fontSize: 13, color: 'var(--text2)' }}>
+                                            {tForm.recurrence_type === 'daily' ? t('chores.intervalDays') : tForm.recurrence_type === 'weekly' ? t('chores.intervalWeeks') : t('chores.intervalMonths')}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div style={{ flex: 1 }}>
                                     <label className="label">{t('chores.points')}</label>
                                     <input className="input" type="number" min={1} max={10} value={tForm.points} onChange={e => setTForm(f => ({ ...f, points: parseInt(e.target.value) }))} />
                                 </div>

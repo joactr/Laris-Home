@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { sendPushNotification } from '../services/push.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -46,7 +47,17 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         [req.user!.householdId, d.title, d.description ?? null, d.start_datetime, d.end_datetime,
         req.user!.id, d.assigned_user_id ?? null, d.category, d.recurrence ?? null]
     );
-    res.status(201).json(rows[0]);
+    const event = rows[0];
+    res.status(201).json(event);
+
+    // Send push notification if assigned to someone else
+    if (d.assigned_user_id && d.assigned_user_id !== req.user!.id) {
+        sendPushNotification(d.assigned_user_id, {
+            title: 'Nuevo evento/tarea en calendario',
+            body: `${req.user!.name} te ha asignado: ${d.title}`,
+            url: '/calendar'
+        });
+    }
 });
 
 // Update event
@@ -64,7 +75,17 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         [d.title, d.description, d.start_datetime, d.end_datetime,
         d.assigned_user_id, d.category, d.recurrence, req.params.id, req.user!.householdId]
     );
-    res.json(rows[0]);
+    const event = rows[0];
+    res.json(event);
+
+    // Send push notification if assignment changed
+    if (d.assigned_user_id && d.assigned_user_id !== req.user!.id) {
+        sendPushNotification(d.assigned_user_id, {
+            title: 'Evento/tarea de calendario actualizado',
+            body: `${req.user!.name} ha actualizado o te ha asignado: ${event.title}`,
+            url: '/calendar'
+        });
+    }
 });
 
 // Delete event

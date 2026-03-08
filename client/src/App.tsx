@@ -1,5 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from './store/auth';
+import { requestNotificationPermission, subscribeUserToPush } from './services/push.service';
 import Layout from './components/Layout';
 import AuthPage from './pages/Auth/AuthPage';
 import Dashboard from './pages/Dashboard/Dashboard';
@@ -21,7 +23,34 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
     const token = useAuthStore((s) => s.token);
-    return (
+    useEffect(() => {
+    // Other effects...
+    
+    // Request notification permissions and subscribe on mount
+    const initPush = async () => {
+      try {
+        const granted = await requestNotificationPermission();
+        const authData = localStorage.getItem('laris-home-auth');
+        let hasToken = null;
+        if (authData) {
+          try {
+            hasToken = JSON.parse(authData).state?.token;
+          } catch (e) {
+            console.error('Error parsing authData:', e);
+          }
+        }
+        
+        if (granted && hasToken) {
+          await subscribeUserToPush();
+        }
+      } catch (err) {
+        console.error('Push initialization error:', err);
+      }
+    };
+    initPush();
+  }, [token]);
+
+  return (
         <BrowserRouter>
             <Routes>
                 <Route path="/login" element={token ? <Navigate to="/" replace /> : <AuthPage />} />

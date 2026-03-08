@@ -4,12 +4,11 @@ services:
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    env_file: .env
     environment:
       DATABASE_URL: postgres://larishome:larishome@host.docker.internal:5432/larishome
       JWT_SECRET: supersecretjwtkey_changeme
       PORT: 4000
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL}
     ports:
       - "4000:4000"
     volumes:

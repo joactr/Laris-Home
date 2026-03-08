@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { sendPushNotification } from '../services/push.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -13,23 +14,53 @@ const TemplateSchema = z.object({
     default_assignee_user_id: z.string().uuid().nullable().optional(),
     recurrence_type: z.enum(['daily', 'weekly', 'monthly']).default('weekly'),
     recurrence_days: z.array(z.number().int().min(0).max(6)).default([1]),
+    recurrence_interval: z.number().int().min(1).default(1),
+    start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     points: z.number().int().min(0).default(1),
 });
 
 // Generate chore instances for a template in next N days
 async function generateInstances(templateId: string, days = 30) {
     const { rows: [t] } = await pool.query('SELECT * FROM chore_templates WHERE id=$1', [templateId]);
-    if (!t) return;
+    if (!t || !t.is_active) return;
+    
+    // Default to today if start_date is somehow missing
+    const startDate = new Date(t.start_date || new Date().toISOString().split('T')[0]);
+    startDate.setHours(0, 0, 0, 0);
+
     for (let i = 0; i < days; i++) {
         const d = new Date();
         d.setDate(d.getDate() + i);
+        d.setHours(0, 0, 0, 0);
+
+        if (d < startDate) continue; // Skip dates before start_date
+
         const dow = d.getDay();
         const dateStr = d.toISOString().split('T')[0];
 
         let shouldCreate = false;
-        if (t.recurrence_type === 'daily') shouldCreate = true;
-        else if (t.recurrence_type === 'weekly') shouldCreate = (t.recurrence_days ?? []).includes(dow);
-        else if (t.recurrence_type === 'monthly') shouldCreate = (t.recurrence_days ?? []).includes(d.getDate());
+        
+        if (t.recurrence_type === 'daily') {
+            const daysDiff = Math.round((d.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+            shouldCreate = daysDiff % (t.recurrence_interval || 1) === 0;
+        } else if (t.recurrence_type === 'weekly') {
+            const startWeekDate = new Date(startDate);
+            startWeekDate.setDate(startWeekDate.getDate() - startWeekDate.getDay());
+            
+            const currentWeekDate = new Date(d);
+            currentWeekDate.setDate(currentWeekDate.getDate() - currentWeekDate.getDay());
+            
+            const weeksDiff = Math.round((currentWeekDate.getTime() - startWeekDate.getTime()) / (1000 * 60 * 60 * 24 * 7));
+            
+            if (weeksDiff % (t.recurrence_interval || 1) === 0) {
+                shouldCreate = (t.recurrence_days ?? []).includes(dow);
+            }
+        } else if (t.recurrence_type === 'monthly') {
+            const monthDiff = (d.getFullYear() - startDate.getFullYear()) * 12 + (d.getMonth() - startDate.getMonth());
+            if (monthDiff % (t.recurrence_interval || 1) === 0) {
+                shouldCreate = (t.recurrence_days ?? []).includes(d.getDate());
+            }
+        }
 
         if (shouldCreate) {
             await pool.query(
@@ -58,14 +89,23 @@ router.post('/templates', async (req: AuthRequest, res: Response) => {
     if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
     const d = parsed.data;
     const { rows } = await pool.query(
-        `INSERT INTO chore_templates (household_id, title, description, location, default_assignee_user_id, recurrence_type, recurrence_days, points)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        `INSERT INTO chore_templates (household_id, title, description, location, default_assignee_user_id, recurrence_type, recurrence_days, points, recurrence_interval, start_date)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
         [req.user!.householdId, d.title, d.description ?? null, d.location ?? null,
-        d.default_assignee_user_id ?? null, d.recurrence_type, d.recurrence_days, d.points]
+        d.default_assignee_user_id ?? null, d.recurrence_type, d.recurrence_days, d.points, d.recurrence_interval, d.start_date || null]
     );
     const template = rows[0];
     await generateInstances(template.id);
     res.status(201).json(template);
+
+    // Send push notification if a default assignee is set
+    if (d.default_assignee_user_id && d.default_assignee_user_id !== req.user!.id) {
+        sendPushNotification(d.default_assignee_user_id, {
+            title: 'Nueva tarea del hogar',
+            body: `${req.user!.name} te ha asignado la tarea interactiva: ${d.title}`,
+            url: '/chores'
+        });
+    }
 });
 
 // Update template
@@ -78,12 +118,24 @@ router.put('/templates/:id', async (req: AuthRequest, res: Response) => {
        title=COALESCE($1,title), description=COALESCE($2,description), location=COALESCE($3,location),
        default_assignee_user_id=COALESCE($4,default_assignee_user_id),
        recurrence_type=COALESCE($5,recurrence_type), recurrence_days=COALESCE($6,recurrence_days),
-       points=COALESCE($7,points)
-     WHERE id=$8 AND household_id=$9 RETURNING *`,
+       points=COALESCE($7,points),
+       recurrence_interval=COALESCE($8,recurrence_interval),
+       start_date=COALESCE($9,start_date)
+     WHERE id=$10 AND household_id=$11 RETURNING *`,
         [d.title, d.description, d.location, d.default_assignee_user_id,
-        d.recurrence_type, d.recurrence_days, d.points, req.params.id, req.user!.householdId]
+        d.recurrence_type, d.recurrence_days, d.points, d.recurrence_interval, d.start_date, req.params.id, req.user!.householdId]
     );
-    res.json(rows[0]);
+    const template = rows[0];
+    res.json(template);
+
+    // Send push notification if assignment changed
+    if (d.default_assignee_user_id && d.default_assignee_user_id !== req.user!.id) {
+        sendPushNotification(d.default_assignee_user_id, {
+            title: 'Tarea del hogar actualizada',
+            body: `${req.user!.name} ha actualizado o te ha asignado: ${template.title}`,
+            url: '/chores'
+        });
+    }
 });
 
 // Delete template
@@ -112,6 +164,38 @@ router.get('/instances', async (req: AuthRequest, res: Response) => {
     query += ' ORDER BY ci.scheduled_date, ct.title';
     const { rows } = await pool.query(query, params);
     res.json(rows);
+});
+
+// Delete instance and future recurrences
+router.delete('/instances/:id', async (req: AuthRequest, res: Response) => {
+    // 1. Get the instance to find its template and date
+    const { rows: [instance] } = await pool.query(
+        `SELECT ci.*, ct.household_id 
+         FROM chore_instances ci 
+         JOIN chore_templates ct ON ci.template_id = ct.id 
+         WHERE ci.id = $1`,
+        [req.params.id]
+    );
+
+    if (!instance || instance.household_id !== req.user!.householdId) {
+        res.status(404).json({ error: 'Instance not found' });
+        return;
+    }
+
+    // 2. Mark template as inactive so it won't generate more
+    await pool.query(
+        `UPDATE chore_templates SET is_active = FALSE WHERE id = $1`,
+        [instance.template_id]
+    );
+
+    // 3. Delete this instance and all future ones
+    await pool.query(
+        `DELETE FROM chore_instances 
+         WHERE template_id = $1 AND scheduled_date >= $2`,
+        [instance.template_id, instance.scheduled_date]
+    );
+
+    res.json({ ok: true });
 });
 
 // Update instance status

@@ -69,6 +69,7 @@ export const api = {
         getInstances: (start: string, end: string) => request<any[]>(`/chores/instances?start=${start}&end=${end}`),
         updateStatus: (id: string, status: string) =>
             request<any>(`/chores/instances/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+        deleteInstance: (id: string) => request<any>(`/chores/instances/${id}`, { method: 'DELETE' }),
         getStats: (start: string, end: string) => request<any[]>(`/chores/stats?start=${start}&end=${end}`),
     },
     meals: {
@@ -97,5 +98,10 @@ export const api = {
             request<any>(`/projects/${projectId}/tasks`, { method: 'POST', body: JSON.stringify(data) }),
         updateTask: (id: string, data: object) => request<any>(`/projects/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
         deleteTask: (id: string) => request<any>(`/projects/tasks/${id}`, { method: 'DELETE' }),
+    },
+    voice: {
+        getConfig: () => request<{ apiKey: string; language: string; endpointing: string }>('/voice/config'),
+        processShopping: (transcript: string) => request<any>('/voice/shopping', { method: 'POST', body: JSON.stringify({ transcript }) }),
+        processRecipes: (transcript: string) => request<any>('/voice/recipes', { method: 'POST', body: JSON.stringify({ transcript }) }),
     },
 };
