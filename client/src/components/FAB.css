@@ -29,6 +29,10 @@
   background: var(--accent-hover);
 }
 
+.fab-button svg.rotated {
+  transform: rotate(45deg);
+}
+
 .fab-menu {
   display: flex;
   flex-direction: column;

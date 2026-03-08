@@ -1,0 +1,16 @@
+.confirm-modal {
+  max-width: 400px;
+  animation: slideUp 0.15s ease-out;
+}
+
+.confirm-modal .modal-body {
+  padding: 0 0 10px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.confirm-modal .modal-actions {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}

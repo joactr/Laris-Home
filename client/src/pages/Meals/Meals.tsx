@@ -69,159 +69,151 @@ export default function Meals() {
             <div className="page-header">
                 <div>
                     <div className="page-title">{t('page.meals')}</div>
-                    <div className="page-subtitle">{format(weekStart, 'MMM d')} – {format(weekEnd, 'MMM d')}</div>
+                    <div className="page-subtitle" style={{ textTransform: 'capitalize' }}>
+                        {format(weekStart, 'MMM d', { locale: es })} – {format(weekEnd, 'MMM d', { locale: es })}
+                    </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <button className="btn-icon" onClick={() => setWeekStart(subWeeks(weekStart, 1))}>←</button>
-                    <button className="btn-icon" onClick={() => setWeekStart(addWeeks(weekStart, 1))}>→</button>
+                    <button className="btn-icon touch-target" onClick={() => setWeekStart(subWeeks(weekStart, 1))} aria-label={t('common.prev')}>←</button>
+                    <button className="btn-icon touch-target" onClick={() => setWeekStart(addWeeks(weekStart, 1))} aria-label={t('common.next')}>→</button>
                 </div>
             </div>
 
-            <div className="meal-week-grid">
-                {weekDays.map(day => {
-                    const dateStr = format(day, 'yyyy-MM-dd');
-                    const meal = mealMap[dateStr] || {};
-                    const totalMacros = MEAL_TYPES.reduce((acc, type) => {
-                        acc.calories += Number(meal[`${type}_calories`]) || 0;
-                        acc.protein += Number(meal[`${type}_protein`]) || 0;
-                        acc.carbs += Number(meal[`${type}_carbs`]) || 0;
-                        acc.fat += Number(meal[`${type}_fat`]) || 0;
-                        return acc;
-                    }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
-                    const hasMacros = totalMacros.calories > 0 || totalMacros.protein > 0 || totalMacros.carbs > 0 || totalMacros.fat > 0;
+            <div className="meal-week-grid h-scroll-wrapper">
+                <div className="h-scroll-container">
+                    {weekDays.map(day => {
+                        const dateStr = format(day, 'yyyy-MM-dd');
+                        const meal = mealMap[dateStr] || {};
+                        const totalMacros = MEAL_TYPES.reduce((acc, type) => {
+                            acc.calories += Number(meal[`${type}_calories`]) || 0;
+                            acc.protein += Number(meal[`${type}_protein`]) || 0;
+                            acc.carbs += Number(meal[`${type}_carbs`]) || 0;
+                            acc.fat += Number(meal[`${type}_fat`]) || 0;
+                            return acc;
+                        }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+                        const hasMacros = totalMacros.calories > 0 || totalMacros.protein > 0 || totalMacros.carbs > 0 || totalMacros.fat > 0;
 
-                    return (
-                        <div key={dateStr} className={`meal-day-card ${isSameDay(day, new Date()) ? 'today-highlight' : ''}`}>
-                            <div className="meal-day-title" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
-                                <span style={{ textTransform: 'capitalize' }}>{format(day, 'EEE d', { weekStartsOn: 1, locale: es })}</span>
-                                {hasMacros && (
-                                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                        {totalMacros.calories > 0 && <span style={{ fontSize: 10, background: 'rgba(33,150,243,0.15)', color: '#90caf9', border: '1px solid rgba(33,150,243,0.3)', padding: '2px 6px', borderRadius: 6 }}><strong>{Math.round(totalMacros.calories)}</strong> kcal</span>}
-                                        {totalMacros.carbs > 0 && <span style={{ fontSize: 10, background: 'rgba(76,175,80,0.15)', color: '#a5d6a7', border: '1px solid rgba(76,175,80,0.3)', padding: '2px 6px', borderRadius: 6 }}><strong>{Math.round(totalMacros.carbs)}g</strong> C</span>}
-                                        {totalMacros.fat > 0 && <span style={{ fontSize: 10, background: 'rgba(156,39,176,0.15)', color: '#ce93d8', border: '1px solid rgba(156,39,176,0.3)', padding: '2px 6px', borderRadius: 6 }}><strong>{Math.round(totalMacros.fat)}g</strong> G</span>}
-                                        {totalMacros.protein > 0 && <span style={{ fontSize: 10, background: 'rgba(255,193,7,0.15)', color: '#ffe082', border: '1px solid rgba(255,193,7,0.3)', padding: '2px 6px', borderRadius: 6 }}><strong>{Math.round(totalMacros.protein)}g</strong> P</span>}
+                        return (
+                            <div key={dateStr} className={`meal-day-card ${isSameDay(day, new Date()) ? 'today-highlight' : ''}`}>
+                                <div className="meal-day-header">
+                                    <div className="meal-day-title" style={{ textTransform: 'capitalize' }}>
+                                        {format(day, 'EEE d', { weekStartsOn: 1, locale: es })}
                                     </div>
-                                )}
-                            </div>
-                            {MEAL_TYPES.map(type => (
-                                <div key={type} className="meal-slot">
-                                    <div className="meal-slot-label">{type === 'breakfast' ? 'desayuno' : type === 'lunch' ? 'almuerzo' : type === 'dinner' ? 'cena' : 'merienda'}</div>
-                                    {editing?.date === dateStr && editing?.field === type ? (
-                                        <div style={{ position: 'relative' }}>
-                                            <input
-                                                className="input"
-                                                style={{ fontSize: 12, padding: '4px 6px' }}
-                                                autoFocus
-                                                placeholder="Escribe o busca receta..."
-                                                value={editVal}
-                                                onChange={e => setEditVal(e.target.value)}
-                                                onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(null); }}
-                                            />
-                                            {/* Recipe suggestions dropdown */}
-                                            {editVal.trim().length > 0 && recipes.filter(r => r.title.toLowerCase().includes(editVal.toLowerCase())).length > 0 && (
-                                                <div style={{
-                                                    position: 'absolute', top: '100%', left: 0, right: 0,
-                                                    background: 'var(--bg4)', border: '1px solid var(--border)',
-                                                    borderRadius: 'var(--radius-sm)', zIndex: 50,
-                                                    maxHeight: 160, overflowY: 'auto',
-                                                    boxShadow: 'var(--shadow)',
-                                                }}>
-                                                    {recipes
-                                                        .filter(r => r.title.toLowerCase().includes(editVal.toLowerCase()))
-                                                        .map(r => (
-                                                            <div
-                                                                key={r.id}
-                                                                style={{
-                                                                    padding: '7px 10px', fontSize: 12, cursor: 'pointer',
-                                                                    borderBottom: '1px solid var(--border)',
-                                                                    display: 'flex', alignItems: 'center', gap: 6,
-                                                                }}
-                                                                onMouseDown={async (e) => {
-                                                                    e.preventDefault(); // prevent blur
-                                                                    const existing = mealMap[dateStr] || {};
-                                                                    await api.meals.updateDay(dateStr, {
-                                                                        ...existing,
-                                                                        [type]: r.title,
-                                                                        [`${type}_recipe_id`]: r.id,
-                                                                    });
-                                                                    setEditing(null);
-                                                                    load();
-                                                                }}
-                                                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg3)')}
-                                                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                                                            >
-                                                                <span>📖</span>
-                                                                <span>{r.title}</span>
-                                                            </div>
-                                                        ))}
-                                                </div>
-                                            )}
-                                            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-                                                <button className="btn btn-primary btn-sm" style={{ flex: 1, fontSize: 11 }} onClick={saveEdit}>OK</button>
-                                                <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => setEditing(null)}>✕</button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div
-                                            className={`meal-slot-value ${!meal[type] && !meal[`${type}_recipe_id`] ? 'empty' : ''}`}
-                                            onClick={() => startEdit(dateStr, type, meal[`${type}_recipe_title`] || meal[type])}
-                                            title={t('common.edit')}
-                                            style={{ cursor: 'pointer', minHeight: 20 }}
-                                        >
-                                            {meal[`${type}_recipe_title`] ? (
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                                    <span style={{ color: 'var(--accent2)', fontWeight: 'bold', fontSize: 12 }}>
-                                                        📖 {meal[`${type}_recipe_title`]}
-                                                    </span>
-                                                    {(Number(meal[`${type}_calories`]) > 0 || Number(meal[`${type}_protein`]) > 0) && (
-                                                        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                                                            {Number(meal[`${type}_calories`]) > 0 && <span style={{ fontSize: 9, background: 'rgba(33,150,243,0.15)', color: '#90caf9', border: '1px solid rgba(33,150,243,0.3)', padding: '1px 5px', borderRadius: 5 }}>{Math.round(Number(meal[`${type}_calories`]))} kcal</span>}
-                                                            {Number(meal[`${type}_carbs`]) > 0 && <span style={{ fontSize: 9, background: 'rgba(76,175,80,0.15)', color: '#a5d6a7', border: '1px solid rgba(76,175,80,0.3)', padding: '1px 5px', borderRadius: 5 }}>{Math.round(Number(meal[`${type}_carbs`]))}g C</span>}
-                                                            {Number(meal[`${type}_fat`]) > 0 && <span style={{ fontSize: 9, background: 'rgba(156,39,176,0.15)', color: '#ce93d8', border: '1px solid rgba(156,39,176,0.3)', padding: '1px 5px', borderRadius: 5 }}>{Math.round(Number(meal[`${type}_fat`]))}g G</span>}
-                                                            {Number(meal[`${type}_protein`]) > 0 && <span style={{ fontSize: 9, background: 'rgba(255,193,7,0.15)', color: '#ffe082', border: '1px solid rgba(255,193,7,0.3)', padding: '1px 5px', borderRadius: 5 }}>{Math.round(Number(meal[`${type}_protein`]))}g P</span>}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ) : (meal[type] || t('common.add'))}
+                                    {hasMacros && (
+                                        <div className="meal-day-macros">
+                                            {totalMacros.calories > 0 && <span className="macro-badge calories"><strong>{Math.round(totalMacros.calories)}</strong> kcal</span>}
+                                            {totalMacros.carbs > 0 && <span className="macro-badge carbs"><strong>{Math.round(totalMacros.carbs)}g</strong> C</span>}
+                                            {totalMacros.fat > 0 && <span className="macro-badge fat"><strong>{Math.round(totalMacros.fat)}g</strong> G</span>}
+                                            {totalMacros.protein > 0 && <span className="macro-badge protein"><strong>{Math.round(totalMacros.protein)}g</strong> P</span>}
                                         </div>
                                     )}
                                 </div>
-                            ))}
-                            <button
-                                className="btn btn-ghost btn-sm"
-                                style={{ width: '100%', marginTop: 6, fontSize: 11 }}
-                                onClick={() => { setShowShoppingModal({ date: dateStr, meal: '' }); setIngredientText(''); }}
-                            >
-                                🛒 {t('recipes.addToShoppingList')}
-                            </button>
-                        </div>
-                    );
-                })}
+                                {MEAL_TYPES.map(type => (
+                                    <div key={type} className="meal-slot">
+                                        <div className="meal-slot-label">{t(`meals.${type}`)}</div>
+                                        {editing?.date === dateStr && editing?.field === type ? (
+                                            <div className="meal-edit-container">
+                                                <input
+                                                    className="input meal-input"
+                                                    autoFocus
+                                                    placeholder={t('common.search')}
+                                                    value={editVal}
+                                                    onChange={e => setEditVal(e.target.value)}
+                                                    onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(null); }}
+                                                />
+                                                {/* Recipe suggestions dropdown */}
+                                                {editVal.trim().length > 0 && recipes.filter(r => r.title.toLowerCase().includes(editVal.toLowerCase())).length > 0 && (
+                                                    <div className="meal-suggestions">
+                                                        {recipes
+                                                            .filter(r => r.title.toLowerCase().includes(editVal.toLowerCase()))
+                                                            .map(r => (
+                                                                <div
+                                                                    key={r.id}
+                                                                    className="suggestion-item"
+                                                                    onMouseDown={async (e) => {
+                                                                        e.preventDefault(); // prevent blur
+                                                                        const existing = mealMap[dateStr] || {};
+                                                                        await api.meals.updateDay(dateStr, {
+                                                                            ...existing,
+                                                                            [type]: r.title,
+                                                                            [`${type}_recipe_id`]: r.id,
+                                                                        });
+                                                                        setEditing(null);
+                                                                        load();
+                                                                    }}
+                                                                >
+                                                                    <span>📖</span>
+                                                                    <span>{r.title}</span>
+                                                                </div>
+                                                            ))}
+                                                    </div>
+                                                )}
+                                                <div className="meal-edit-actions">
+                                                    <button className="btn btn-primary btn-xs touch-target" onClick={saveEdit}>OK</button>
+                                                    <button className="btn btn-secondary btn-xs touch-target" onClick={() => setEditing(null)}>✕</button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div
+                                                className={`meal-slot-value touch-target ${!meal[type] && !meal[`${type}_recipe_id`] ? 'empty' : ''}`}
+                                                onClick={() => startEdit(dateStr, type, meal[`${type}_recipe_title`] || meal[type])}
+                                                title={t('common.edit')}
+                                            >
+                                                {meal[`${type}_recipe_title`] ? (
+                                                    <div className="meal-recipe-link">
+                                                        <span className="recipe-title">📖 {meal[`${type}_recipe_title`]}</span>
+                                                        {(Number(meal[`${type}_calories`]) > 0 || Number(meal[`${type}_protein`]) > 0) && (
+                                                            <div className="meal-slot-macros">
+                                                                {Number(meal[`${type}_calories`]) > 0 && <span className="macro-badge-sm calories">{Math.round(Number(meal[`${type}_calories`]))}</span>}
+                                                                {Number(meal[`${type}_carbs`]) > 0 && <span className="macro-badge-sm carbs">{Math.round(Number(meal[`${type}_carbs`]))}</span>}
+                                                                {Number(meal[`${type}_fat`]) > 0 && <span className="macro-badge-sm fat">{Math.round(Number(meal[`${type}_fat`]))}</span>}
+                                                                {Number(meal[`${type}_protein`]) > 0 && <span className="macro-badge-sm protein">{Math.round(Number(meal[`${type}_protein`]))}</span>}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ) : (meal[type] || t('common.add'))}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                                <button
+                                    className="btn btn-ghost btn-sm touch-target"
+                                    style={{ width: '100%', marginTop: 8 }}
+                                    onClick={() => { setShowShoppingModal({ date: dateStr, meal: '' }); setIngredientText(''); }}
+                                >
+                                    🛒 {t('recipes.addToShoppingList')}
+                                </button>
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
 
 
             {showShoppingModal && (
                 <div className="modal-overlay" onClick={() => setShowShoppingModal(null)}>
                     <div className="modal" onClick={e => e.stopPropagation()}>
-                                <div className="modal-header">
+                        <div className="modal-header">
                             <span className="modal-title">{t('recipes.addToShoppingList')}</span>
-                            <button className="modal-close" onClick={() => setShowShoppingModal(null)}>×</button>
+                            <button className="modal-close touch-target" onClick={() => setShowShoppingModal(null)} aria-label={t('common.close')}>×</button>
                         </div>
-                        <div className="form-group">
-                            <label className="label">{t('page.shopping')}</label>
-                            <select className="input" value={selectedList} onChange={e => setSelectedList(e.target.value)}>
-                                {lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                            </select>
-                        </div>
-                        <div className="form-group">
-                            <label className="label">{t('recipes.ingredients')} (uno por línea)</label>
-                            <textarea
-                                className="input"
-                                placeholder={"Pasta\nTomate\nQueso"}
-                                value={ingredientText}
-                                onChange={e => setIngredientText(e.target.value)}
-                                style={{ minHeight: 120 }}
-                            />
+                        <div className="modal-body">
+                            <div className="form-group">
+                                <label className="label" htmlFor="list-select">{t('page.shopping')}</label>
+                                <select id="list-select" className="input" value={selectedList} onChange={e => setSelectedList(e.target.value)}>
+                                    {lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label className="label">{t('recipes.ingredients')} (uno por línea)</label>
+                                <textarea
+                                    className="input"
+                                    placeholder={"Pasta\nTomate\nQueso"}
+                                    value={ingredientText}
+                                    onChange={e => setIngredientText(e.target.value)}
+                                    style={{ minHeight: 120 }}
+                                />
+                            </div>
                         </div>
                         <div className="modal-actions">
                             <button className="btn btn-secondary" onClick={() => setShowShoppingModal(null)}>{t('common.cancel')}</button>

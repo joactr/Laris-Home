@@ -28,7 +28,14 @@ export default function Dashboard() {
                     <div className="page-title">{getGreeting()}, {user?.name} 👋</div>
                     <div className="page-subtitle" style={{ textTransform: 'capitalize' }}>{todayLabel}</div>
                 </div>
-                <button className="btn btn-ghost btn-sm" onClick={logout} id="dashboard-logout">{t('nav.logout')}</button>
+                <button 
+                  className="btn btn-ghost btn-sm touch-target" 
+                  onClick={logout} 
+                  id="dashboard-logout"
+                  aria-label={t('nav.logout')}
+                >
+                    {t('nav.logout')}
+                </button>
             </div>
 
             <div className="dashboard-grid">
@@ -36,14 +43,14 @@ export default function Dashboard() {
                 <div className="card">
                     <div className="dash-section-title">🍽 {t('dashboard.todayMeals')}</div>
                     {data?.meals ? (
-                        <div>
-                            {data.meals.breakfast && <div style={{ marginBottom: 6 }}><span style={{ color: 'var(--text2)', fontSize: 12 }}>{t('meals.breakfast')} · </span>{data.meals.breakfast}</div>}
-                            {data.meals.lunch && <div style={{ marginBottom: 6 }}><span style={{ color: 'var(--text2)', fontSize: 12 }}>{t('meals.lunch')} · </span>{data.meals.lunch}</div>}
-                            {data.meals.dinner && <div style={{ marginBottom: 6 }}><span style={{ color: 'var(--text2)', fontSize: 12 }}>{t('meals.dinner')} · </span>{data.meals.dinner}</div>}
-                            {data.meals.snack && <div><span style={{ color: 'var(--text2)', fontSize: 12 }}>{t('meals.snack')} · </span>{data.meals.snack}</div>}
+                        <div className="dash-meals-list">
+                            {data.meals.breakfast && <div className="dash-meal-item"><span className="meal-label">{t('meals.breakfast')} · </span>{data.meals.breakfast}</div>}
+                            {data.meals.lunch && <div className="dash-meal-item"><span className="meal-label">{t('meals.lunch')} · </span>{data.meals.lunch}</div>}
+                            {data.meals.dinner && <div className="dash-meal-item"><span className="meal-label">{t('meals.dinner')} · </span>{data.meals.dinner}</div>}
+                            {data.meals.snack && <div className="dash-meal-item"><span className="meal-label">{t('meals.snack')} · </span>{data.meals.snack}</div>}
                         </div>
                     ) : <p className="empty-state" style={{ padding: '10px 0' }}>{t('dashboard.noMeals')}</p>}
-                    <button className="btn btn-ghost btn-sm" style={{ marginTop: 10 }} onClick={() => navigate('/meals')}>{t('dashboard.editMeals')}</button>
+                    <button className="btn btn-ghost btn-sm touch-target" style={{ marginTop: 10 }} onClick={() => navigate('/meals')}>{t('dashboard.editMeals')}</button>
                 </div>
 
                 {/* Today's Events */}
@@ -54,42 +61,42 @@ export default function Dashboard() {
                             <div className="event-time">{format(new Date(e.start_datetime), 'HH:mm')}</div>
                             <div>
                                 <div style={{ fontWeight: 600, fontSize: 14 }}>{e.title}</div>
-                                {e.assigned_name && <div style={{ fontSize: 12, color: 'var(--text2)' }}>{t('dashboard.with')} {e.assigned_name}</div>}
+                                {e.assigned_name && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('dashboard.with')} {e.assigned_name}</div>}
                             </div>
                         </div>
-                    )) : <p style={{ color: 'var(--text2)', fontSize: 13 }}>{t('dashboard.noEvents')}</p>}
-                    <button className="btn btn-ghost btn-sm" style={{ marginTop: 10 }} onClick={() => navigate('/calendar')}>{t('dashboard.viewCalendar')}</button>
+                    )) : <p className="empty-state-sm">{t('dashboard.noEvents')}</p>}
+                    <button className="btn btn-ghost btn-sm touch-target" style={{ marginTop: 10 }} onClick={() => navigate('/calendar')}>{t('dashboard.viewCalendar')}</button>
                 </div>
 
                 {/* Today's Chores */}
                 <div className="card">
                     <div className="dash-section-title">🧹 {t('dashboard.todayChores')}</div>
                     {data?.chores?.length ? data.chores.map((c: any) => (
-                        <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 6 }}>
-                            <span style={{ fontSize: 16 }}>{c.status === 'done' ? '✅' : c.status === 'skipped' ? '⏭' : '⬜'}</span>
-                            <span style={{ fontSize: 14, color: c.status === 'done' ? 'var(--text2)' : 'var(--text)', fontWeight: 500 }}>{c.title}</span>
+                        <div key={c.id} className="dash-chore-item">
+                            <span className="chore-status-icon">{c.status === 'done' ? '✅' : c.status === 'skipped' ? '⏭' : '⬜'}</span>
+                            <span className={`chore-text ${c.status === 'done' ? 'completed' : ''}`}>{c.title}</span>
                             {c.assigned_name && (
-                                <span className="avatar" style={{ background: c.assigned_color, marginLeft: 'auto' }}>
+                                <span className="avatar" title={c.assigned_name} style={{ background: c.assigned_color, marginLeft: 'auto' }}>
                                     {c.assigned_name[0]}
                                 </span>
                             )}
                         </div>
-                    )) : <p style={{ color: 'var(--text2)', fontSize: 13 }}>{t('dashboard.noChores')}</p>}
-                    <button className="btn btn-ghost btn-sm" style={{ marginTop: 10 }} onClick={() => navigate('/chores')}>{t('dashboard.manageChores')}</button>
+                    )) : <p className="empty-state-sm">{t('dashboard.noChores')}</p>}
+                    <button className="btn btn-ghost btn-sm touch-target" style={{ marginTop: 10 }} onClick={() => navigate('/chores')}>{t('dashboard.manageChores')}</button>
                 </div>
 
                 {/* Overdue tasks */}
                 {data?.overdue_tasks?.length > 0 && (
-                    <div className="card" style={{ borderColor: 'rgba(239,68,68,0.4)' }}>
-                        <div className="dash-section-title" style={{ color: 'var(--red)' }}>⚠ {t('dashboard.overdueTasks')}</div>
+                    <div className="card card-danger">
+                        <div className="dash-section-title danger-text">⚠ {t('dashboard.overdueTasks')}</div>
                         {data.overdue_tasks.map((t: any) => (
-                            <div key={t.id} style={{ fontSize: 14, paddingBottom: 6 }}>
-                                <span className="priority-badge priority-high">{t.priority}</span>{' '}
-                                <span style={{ fontWeight: 500 }}>{t.title}</span>
-                                <span style={{ color: 'var(--text2)', fontSize: 12, marginLeft: 6 }}>({t.project_name})</span>
+                            <div key={t.id} className="overdue-item">
+                                <span className={`priority-badge priority-${t.priority}`}>{t.priority}</span>{' '}
+                                <span className="overdue-title">{t.title}</span>
+                                <span className="overdue-project">({t.project_name})</span>
                             </div>
                         ))}
-                        <button className="btn btn-ghost btn-sm" style={{ marginTop: 10 }} onClick={() => navigate('/projects')}>{t('dashboard.viewProjects')}</button>
+                        <button className="btn btn-ghost btn-sm touch-target" style={{ marginTop: 10 }} onClick={() => navigate('/projects')}>{t('dashboard.viewProjects')}</button>
                     </div>
                 )}
             </div>

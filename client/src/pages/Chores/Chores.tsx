@@ -3,6 +3,7 @@ import { format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay } from 'dat
 import { api } from '../../api/client';
 import { es } from 'date-fns/locale';
 import { t } from '../../i18n';
+import ConfirmModal from '../../components/ConfirmModal';
 
 export default function Chores() {
     const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -13,6 +14,9 @@ export default function Chores() {
     const [showTemplateModal, setShowTemplateModal] = useState(false);
     const [members, setMembers] = useState<any[]>([]);
     const [tForm, setTForm] = useState({ title: '', location: '', recurrence_type: 'weekly', recurrence_days: [1], points: 2, default_assignee_user_id: '', start_date: format(new Date(), 'yyyy-MM-dd'), recurrence_interval: 1 });
+    
+    // Modal state
+    const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
     const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
     const weekEnd = addDays(weekStart, 6);
@@ -34,12 +38,11 @@ export default function Chores() {
         load();
     };
 
-    const deleteInstance = async (id: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (window.confirm(t('chores.deleteConfirm'))) {
-            await api.chores.deleteInstance(id);
-            load();
-        }
+    const handleDeleteInstance = async () => {
+        if (!confirmDeleteId) return;
+        await api.chores.deleteInstance(confirmDeleteId);
+        setConfirmDeleteId(null);
+        load();
     };
 
     const createTemplate = async (e: React.FormEvent) => {
@@ -85,32 +88,34 @@ export default function Chores() {
                     </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn-icon" onClick={() => setWeekStart(subWeeks(weekStart, 1))}>←</button>
-                    <button className="btn-icon" onClick={() => setWeekStart(addWeeks(weekStart, 1))}>→</button>
-                    <button id="chores-add-template" className="btn btn-primary btn-sm" onClick={() => setShowTemplateModal(true)}>{t('chores.addChore')}</button>
+                    <button className="btn-icon touch-target" onClick={() => setWeekStart(subWeeks(weekStart, 1))} aria-label={t('common.prev')}>←</button>
+                    <button className="btn-icon touch-target" onClick={() => setWeekStart(addWeeks(weekStart, 1))} aria-label={t('common.next')}>→</button>
+                    <button id="chores-add-template" className="btn btn-primary btn-sm touch-target" onClick={() => setShowTemplateModal(true)}>{t('chores.addChore')}</button>
                 </div>
             </div>
 
             {/* Stats */}
-            <div className="stats-row">
-                {stats.map(s => (
-                    <div key={s.id} className="stat-card">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                            <span className="avatar" style={{ background: s.color, width: 28, height: 28, fontSize: 13 }}>{s.name[0]}</span>
-                            <span style={{ fontWeight: 600, fontSize: 14 }}>{s.name}</span>
+            <div className="stats-row h-scroll-wrapper">
+                <div className="h-scroll-container">
+                    {stats.map(s => (
+                        <div key={s.id} className="stat-card">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                <span className="avatar" style={{ background: s.color, width: 28, height: 28, fontSize: 13 }}>{s.name[0]}</span>
+                                <span style={{ fontWeight: 600, fontSize: 14 }}>{s.name}</span>
+                            </div>
+                            <div className="stat-value">{s.completed ?? 0}</div>
+                            <div className="stat-label">{t('chores.done')}</div>
+                            <div style={{ fontWeight: 600, color: 'var(--yellow)', fontSize: 18 }}>{s.points ?? 0} pts</div>
                         </div>
-                        <div className="stat-value">{s.completed ?? 0}</div>
-                        <div className="stat-label">{t('chores.done')}</div>
-                        <div style={{ fontWeight: 600, color: 'var(--yellow)', fontSize: 18 }}>{s.points ?? 0} pts</div>
-                    </div>
-                ))}
-                {stats.length === 0 && <div className="stat-card" style={{ color: 'var(--text2)', fontSize: 13 }}>{t('chores.noCompleted')}</div>}
+                    ))}
+                </div>
+                {stats.length === 0 && <div className="stat-card" style={{ color: 'var(--text-secondary)', fontSize: 13, minWidth: '100%' }}>{t('chores.noCompleted')}</div>}
             </div>
 
             {/* Filter */}
             <div className="filter-tabs" style={{ marginBottom: 14 }}>
                 {['all', 'mine', 'partner'].map(f => (
-                    <button key={f} className={`filter-tab ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f as any)}>
+                    <button key={f} className={`filter-tab touch-target ${filter === f ? 'active' : ''}`} onClick={() => setFilter(f as any)}>
                         {f === 'all' ? t('chores.filterAll') : f === 'mine' ? t('chores.filterMine') : t('chores.filterPartner')}
                     </button>
                 ))}
@@ -122,7 +127,7 @@ export default function Chores() {
                     <div key={day.toISOString()} className={`chore-day ${isSameDay(day, new Date()) ? 'today-highlight' : ''}`}>
                         <div className="day-header" style={{ textTransform: 'capitalize' }}>{format(day, 'EEE', { locale: es })}</div>
                         <div className="day-number" style={{ textAlign: 'center', marginBottom: 8, fontSize: 13, fontWeight: 600 }}>{format(day, 'd')}</div>
-                        {instancesForDay(day).length === 0 && <p style={{ fontSize: 11, color: 'var(--text2)', textAlign: 'center' }}>—</p>}
+                        {instancesForDay(day).length === 0 && <p style={{ fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>—</p>}
                         {instancesForDay(day).map(inst => (
                             <div key={inst.id} className={`chore-card ${inst.status}`}
                                 onClick={() => setStatus(inst.id, inst.status === 'done' ? 'pending' : 'done')}>
@@ -130,17 +135,17 @@ export default function Chores() {
                                     <div className="chore-title" style={{ flex: 1 }}>{inst.title}</div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                         {inst.assigned_color && (
-                                            <span className="avatar" style={{ background: inst.assigned_color, fontSize: 9, width: 18, height: 18 }}>
+                                            <span className="avatar" title={inst.assigned_name} style={{ background: inst.assigned_color, fontSize: 9, width: 18, height: 18 }}>
                                                 {inst.assigned_name?.[0]}
                                             </span>
                                         )}
-                                        <button className="btn-icon" onClick={(e) => deleteInstance(inst.id, e)} style={{ padding: 2, fontSize: 14, opacity: 0.6, background: 'none', border: 'none', cursor: 'pointer' }}>
+                                        <button className="btn-icon touch-target" onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(inst.id); }} style={{ padding: 4, opacity: 0.6 }} aria-label={t('common.delete')}>
                                             🗑️
                                         </button>
                                     </div>
                                 </div>
                                 <div className="chore-points">⭐ {inst.points} pts</div>
-                                <div style={{ fontSize: 10, marginTop: 3, color: inst.status === 'done' ? 'var(--green)' : 'var(--text2)' }}>
+                                <div style={{ fontSize: 10, marginTop: 3, opacity: 0.8 }}>
                                     {inst.status}
                                 </div>
                             </div>
@@ -149,31 +154,41 @@ export default function Chores() {
                 ))}
             </div>
 
+            {/* Confirm Delete Modal */}
+            <ConfirmModal
+                isOpen={!!confirmDeleteId}
+                title={t('common.delete')}
+                message={t('chores.deleteConfirm')}
+                onConfirm={handleDeleteInstance}
+                onCancel={() => setConfirmDeleteId(null)}
+                isDanger
+            />
+
             {/* Template modal */}
             {showTemplateModal && (
                 <div className="modal-overlay" onClick={() => setShowTemplateModal(false)}>
                     <div className="modal" onClick={e => e.stopPropagation()}>
                         <div className="modal-header">
                             <span className="modal-title">{t('chores.newRecurring')}</span>
-                            <button className="modal-close" onClick={() => setShowTemplateModal(false)}>×</button>
+                            <button className="modal-close touch-target" onClick={() => setShowTemplateModal(false)} aria-label={t('common.close')}>×</button>
                         </div>
                         <form onSubmit={createTemplate}>
                             <div className="form-group">
-                                <label className="label">{t('common.title')}</label>
+                                <label className="label" htmlFor="chore-title">{t('common.title')}</label>
                                 <input id="chore-title" className="input" value={tForm.title} onChange={e => setTForm(f => ({ ...f, title: e.target.value }))} required autoFocus />
                             </div>
-                            <div className="form-group field-row">
-                                <div style={{ flex: 1 }}>
+                            <div className="form-group field-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                <div>
                                     <label className="label">{t('chores.location')}</label>
                                     <input className="input" value={tForm.location} onChange={e => setTForm(f => ({ ...f, location: e.target.value }))} />
                                 </div>
-                                <div style={{ flex: 1 }}>
+                                <div>
                                     <label className="label">{t('chores.startDate')}</label>
                                     <input type="date" className="input" value={tForm.start_date} onChange={e => setTForm(f => ({ ...f, start_date: e.target.value }))} required />
                                 </div>
                             </div>
-                            <div className="form-group field-row">
-                                <div style={{ flex: 1 }}>
+                            <div className="form-group field-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                                <div>
                                     <label className="label">{t('chores.recurrence')}</label>
                                     <select className="input" value={tForm.recurrence_type} onChange={e => setTForm(f => ({ ...f, recurrence_type: e.target.value }))}>
                                         <option value="daily">{t('chores.daily')}</option>
@@ -181,16 +196,11 @@ export default function Chores() {
                                         <option value="monthly">{t('chores.monthly')}</option>
                                     </select>
                                 </div>
-                                <div style={{ flex: 1 }}>
+                                <div>
                                     <label className="label">{t('chores.interval')}</label>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <input className="input" type="number" min={1} max={99} value={tForm.recurrence_interval} onChange={e => setTForm(f => ({ ...f, recurrence_interval: parseInt(e.target.value) || 1 }))} style={{ width: 60 }} />
-                                        <span style={{ fontSize: 13, color: 'var(--text2)' }}>
-                                            {tForm.recurrence_type === 'daily' ? t('chores.intervalDays') : tForm.recurrence_type === 'weekly' ? t('chores.intervalWeeks') : t('chores.intervalMonths')}
-                                        </span>
-                                    </div>
+                                    <input className="input" type="number" min={1} max={99} value={tForm.recurrence_interval} onChange={e => setTForm(f => ({ ...f, recurrence_interval: parseInt(e.target.value) || 1 }))} />
                                 </div>
-                                <div style={{ flex: 1 }}>
+                                <div>
                                     <label className="label">{t('chores.points')}</label>
                                     <input className="input" type="number" min={1} max={10} value={tForm.points} onChange={e => setTForm(f => ({ ...f, points: parseInt(e.target.value) }))} />
                                 </div>

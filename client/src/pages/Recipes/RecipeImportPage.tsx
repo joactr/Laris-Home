@@ -168,6 +168,7 @@ export default function RecipeImportPage() {
                                 <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                                     <input 
                                         type="checkbox" 
+                                        className="checkbox-mini"
                                         checked={selectedIngredients.includes(idx.toString())}
                                         onChange={() => toggleIngredient(idx)}
                                     />

@@ -20,6 +20,17 @@ export const translations: Record<string, Record<string, string>> = {
     'common.edit': 'Editar',
     'common.search': 'Buscar',
     'common.loading': 'Cargando...',
+    'common.confirm': 'Confirmar',
+    'common.close': 'Cerrar',
+    'common.archive': 'Archivar',
+    'common.back': 'Volver',
+    'common.next': 'Siguiente',
+    'common.prev': 'Anterior',
+
+    // Accessibility
+    'voice.accessibility.toggle': 'Alternar asistente de voz',
+    'common.accessibility.close': 'Cerrar diálogo',
+    'common.accessibility.menu': 'Menú principal',
 
     // Auth
     'auth.login': 'Iniciar sesión',
@@ -77,17 +88,30 @@ export const translations: Record<string, Record<string, string>> = {
     'shopping.filterCompleted': 'Completados',
     'shopping.noItems': 'No hay artículos aquí',
     'shopping.addedBy': 'Añadido por',
+    'shopping.deleteAllConfirm': '¿Eliminar todos los artículos completados?',
+    'shopping.confirmItems': 'Confirmar items',
+    'shopping.detectedItems': 'Items detectados:',
+    'shopping.confirmBtn': 'Confirmar items',
+    'shopping.deleteListConfirm': '¿Eliminar esta lista y todos sus ítems?',
+    'shopping.deleteListOnly': 'No puedes eliminar la única lista que tienes.',
+    'shopping.createListFirst': 'Crea una lista de compras primero',
 
     // Calendar
     'calendar.newEvent': '+ Evento',
     'calendar.editEvent': 'Editar evento',
     'calendar.deleteConfirm': '¿Eliminar este evento?',
+    'calendar.assigned': 'Asignado a:',
     'calendar.thisWeek': 'Esta semana',
     'calendar.noEvents': 'No hay eventos esta semana',
     'calendar.category.shared': 'Compartido',
     'calendar.category.personal': 'Personal',
     'calendar.category.reminder': 'Recordatorio',
-    'calendar.assigned': 'Asignado a:',
+    'calendar.addEvent': 'Añadir evento',
+    
+    // FAB
+    'fab.newPurchase': 'Nueva Compra',
+    'fab.newEvent': 'Nuevo Evento',
+    'fab.newTask': 'Nueva Tarea',
     
     // Chores
     'chores.addChore': '+ Tarea',
@@ -110,6 +134,7 @@ export const translations: Record<string, Record<string, string>> = {
     'chores.points': 'Puntos',
     'chores.assignTo': 'Asignar a',
     'chores.anyone': 'Cualquiera',
+    'chores.deleteConfirm': '¿Seguro que quieres borrar esta tarea y todas las futuras (las pasadas se mantendrán)?',
 
     // Projects
     'projects.addProject': '+ Proyecto',
@@ -135,6 +160,8 @@ export const translations: Record<string, Record<string, string>> = {
     'projects.unassigned': 'Sin asignar',
     'projects.dueDate': 'Fecha de entrega',
     'projects.deleteConfirm': '¿Eliminar tarea?',
+    'projects.archiveConfirm': '¿Archivar este proyecto?',
+    'projects.deleteProjectConfirm': '¿Eliminar definitivamente este proyecto?',
 
     // Recipes
     'recipes.importUrl': 'Importar desde URL',
@@ -162,9 +189,10 @@ export const translations: Record<string, Record<string, string>> = {
     'recipes.suggestedTitle': 'Recetas sugeridas',
     'recipes.existingMatching': 'Ver receta existente',
     'recipes.saveNewAi': 'Guardar nueva receta (IA)',
-    'recipes.saveNewAiConfirm': '¿Añadir receta "{{name}}" a tus recetas? Se generarán detalles automáticamente con IA.',
+    'recipes.saveNewAiConfirm': '¿Añadir receta "{{0}}" a tus recetas? Se generarán detalles automáticamente con IA.',
     'recipes.saveNewAiSuccess': 'Receta guardada con detalles generados por IA.',
     'recipes.savingAi': 'Guardando con IA...',
+    'recipes.deleteConfirm': '¿Eliminar esta receta?',
 
     // Voice
     'voice.listening': 'Escuchando...',
@@ -172,19 +200,9 @@ export const translations: Record<string, Record<string, string>> = {
     'voice.thinking': 'Pensando opciones...',
     'voice.placeholder.shopping': 'Di algo como: "Añade 3 manzanas y 2 yogures"',
     'voice.placeholder.recipes': 'Di algo como: "Tengo pollo y arroz, ¿qué cocino?"',
+    'voice.placeholder.generic': 'Háblame, te escucho...',
     'voice.error.noItems': 'No se detectaron items.',
     'voice.error.noRecipes': 'No se detectaron recetas.',
-
-    // Shopping
-    'shopping.confirmItems': 'Confirmar items',
-    'shopping.detectedItems': 'Items detectados:',
-    'shopping.confirmBtn': 'Confirmar items',
-    'shopping.deleteListConfirm': '¿Eliminar esta lista y todos sus ítems?',
-    'shopping.deleteListOnly': 'No puedes eliminar la única lista que tienes.',
-    'shopping.createListFirst': 'Crea una lista de compras primero',
-
-    // Chores
-    'chores.deleteConfirm': '¿Seguro que quieres borrar esta tarea y todas las futuras (las pasadas se mantendrán)?',
 
     // Meals
     'meals.breakfast': 'Desayuno',
@@ -200,10 +218,15 @@ export function setLanguage(lang: string) {
   currentLang = lang;
 }
 
-export function t(key: string, defaultText?: string): string {
+export function t(key: string, ...args: any[]): string {
   const langDict = translations[currentLang];
-  if (langDict && langDict[key]) {
-    return langDict[key];
+  let text = langDict?.[key] || key;
+  
+  if (args.length > 0) {
+    args.forEach((val, idx) => {
+      text = text.replace(`{{${idx}}}`, val);
+    });
   }
-  return defaultText || key;
+  
+  return text;
 }

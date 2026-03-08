@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { t } from '../i18n';
 import './FAB.css';
 
 export default function FAB() {
@@ -14,22 +15,26 @@ export default function FAB() {
     <div className={`fab-container ${open ? 'fab-open' : ''}`}>
       {open && (
         <div className="fab-menu">
-          <button className="fab-item" onClick={() => { navigate('/shopping'); setOpen(false); }}>
-            <span className="fab-label">Nueva Compra</span>
+          <button className="fab-item touch-target" onClick={() => { navigate('/shopping'); setOpen(false); }}>
+            <span className="fab-label">{t('fab.newPurchase')}</span>
             <div className="fab-icon-small">🛒</div>
           </button>
-          <button className="fab-item" onClick={() => { navigate('/calendar'); setOpen(false); }}>
-            <span className="fab-label">Nuevo Evento</span>
+          <button className="fab-item touch-target" onClick={() => { navigate('/calendar'); setOpen(false); }}>
+            <span className="fab-label">{t('fab.newEvent')}</span>
             <div className="fab-icon-small">📅</div>
           </button>
-          <button className="fab-item" onClick={() => { navigate('/chores'); setOpen(false); }}>
-            <span className="fab-label">Nueva Tarea</span>
+          <button className="fab-item touch-target" onClick={() => { navigate('/chores'); setOpen(false); }}>
+            <span className="fab-label">{t('fab.newTask')}</span>
             <div className="fab-icon-small">✅</div>
           </button>
         </div>
       )}
-      <button className="fab-button" onClick={() => setOpen(!open)} aria-label="Añadir">
-        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'transform 0.2s', transform: open ? 'rotate(45deg)' : 'none' }}>
+      <button 
+        className="fab-button touch-target" 
+        onClick={() => setOpen(!open)} 
+        aria-label={t('common.add')}
+      >
+        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" className={open ? 'rotated' : ''}>
           <line x1="12" y1="5" x2="12" y2="19"></line>
           <line x1="5" y1="12" x2="19" y2="12"></line>
         </svg>

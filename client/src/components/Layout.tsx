@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/auth';
 
 import { t } from '../i18n';
 import MobileHeader from './MobileHeader';
+import VoiceAssistantUI from './VoiceAssistantUI';
 
 const NAV_ITEMS = [
     { path: '/', label: 'nav.dashboard', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12L12 3l9 9" /><path d="M9 21V12h6v9" /></svg> },
@@ -63,6 +64,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <MobileHeader title={title} onMenuClick={() => setIsDrawerOpen(true)} />
                 <main className="page-container">{children}</main>
             </div>
+            <VoiceAssistantUI />
         </div>
     );
 }

@@ -34,15 +34,15 @@ export default function AuthPage() {
                 <p className="auth-tagline">{t('auth.tagline')}</p>
                 <form onSubmit={handleSubmit}>
                     <div className="form-group">
-                        <label className="label">Usuario</label>
-                        <input id="auth-username" className="input" type="text" placeholder="Usuario" value={username} onChange={(e) => setUsername(e.target.value)} required />
+                        <label className="label">{t('auth.name', 'Usuario')}</label>
+                        <input id="auth-username" className="input" type="text" placeholder={t('auth.name', 'Usuario')} value={username} onChange={(e) => setUsername(e.target.value)} required />
                     </div>
                     <div className="form-group">
                         <label className="label">{t('auth.password')}</label>
                         <input id="auth-password" className="input" type="password" placeholder={t('auth.passwordPlaceholder')} value={password} onChange={(e) => setPassword(e.target.value)} required />
                     </div>
                     {error && <p style={{ color: 'var(--red)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
-                    <button id="auth-submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '11px' }} disabled={loading}>
+                    <button id="auth-submit" className="btn btn-primary touch-target" style={{ width: '100%', justifyContent: 'center' }} disabled={loading}>
                         {loading ? t('common.loading') : t('auth.signin')}
                     </button>
                 </form>
