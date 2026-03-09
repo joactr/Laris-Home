@@ -40,6 +40,17 @@ export default function Calendar() {
 
     useEffect(() => { loadEvents(); }, [weekStart]);
 
+    // Scroll to today on mobile
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            const todayEl = document.querySelector('.today-highlight');
+            if (todayEl) {
+                todayEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [weekStart, events]);
+
     const openCreate = (day: Date) => {
         setEditing(null);
         const dateStr = format(day, 'yyyy-MM-dd');

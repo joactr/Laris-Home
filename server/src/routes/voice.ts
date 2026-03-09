@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { OpenRouterService } from '../services/openrouter.service';
 import { EmbeddingService } from '../services/embedding.service';
+import { RecipeService } from '../services/recipe.service';
 import pool from '../db/pool';
 
 const router = Router();
@@ -22,7 +23,8 @@ router.get('/config', (req: AuthRequest, res: Response) => {
 });
 
 const TranscriptSchema = z.object({
-  transcript: z.string().min(1)
+  transcript: z.string().min(1),
+  recipeId: z.string().optional()
 });
 
 router.post('/shopping', async (req: AuthRequest, res: Response) => {
@@ -103,6 +105,84 @@ router.post('/recipes', async (req: AuthRequest, res: Response) => {
   } catch (err: any) {
     console.error('Voice Recipes Error:', err);
     res.status(500).json({ error: 'Error procesando la solicitud de recetas por voz.' });
+  }
+});
+
+router.post('/recipe-command', async (req: AuthRequest, res: Response) => {
+  const parsed = TranscriptSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+
+  const { transcript, recipeId } = parsed.data;
+  const householdId = req.user?.householdId;
+
+  if (!householdId) {
+    res.status(401).json({ error: 'No autorizado' });
+    return;
+  }
+
+  if (!recipeId) {
+    res.status(400).json({ error: 'Recipe ID is required for this command' });
+    return;
+  }
+
+  try {
+    // Fetch current recipe
+    const { rows: recipeRows } = await pool.query(
+      `SELECT r.*, array_agg(ri.name) as ingredient_names
+       FROM recipes r
+       LEFT JOIN recipe_ingredients ri ON r.id = ri.recipe_id
+       WHERE r.id = $1 AND r.household_id = $2
+       GROUP BY r.id`,
+      [recipeId, householdId]
+    );
+
+    if (recipeRows.length === 0) {
+      res.status(404).json({ error: 'Receta no encontrada' });
+      return;
+    }
+
+    const currentRecipe = recipeRows[0];
+    const result = await OpenRouterService.processRecipeCommand(transcript, {
+      title: currentRecipe.title,
+      ingredients: currentRecipe.ingredient_names || [],
+      instructions: currentRecipe.instructions
+    });
+
+    if (result.modifiedRecipe) {
+      // Recalculate macros for the modified recipe
+      try {
+        const macros = await OpenRouterService.calculateMacros(
+          result.modifiedRecipe.title,
+          result.modifiedRecipe.ingredients.map(i => i.originalText || i.name),
+          result.modifiedRecipe.servings || 1
+        );
+        Object.assign(result.modifiedRecipe, macros);
+      } catch (e) {
+        console.error('Failed to recalculate macros during voice modification:', e);
+      }
+
+      // Update the recipe in DB
+      const updated = await RecipeService.updateRecipe(householdId, recipeId, {
+        ...result.modifiedRecipe,
+        imageUrl: currentRecipe.image_url
+      });
+      res.json({
+        message: result.message,
+        recipe: updated,
+        modified: true
+      });
+    } else {
+      res.json({
+        message: result.message,
+        modified: false
+      });
+    }
+  } catch (err: any) {
+    console.error('Voice Recipe Command Error:', err);
+    res.status(500).json({ error: 'Error procesando el comando de voz para la receta.' });
   }
 });
 

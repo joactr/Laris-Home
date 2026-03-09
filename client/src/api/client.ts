@@ -106,5 +106,6 @@ export const api = {
         getConfig: () => request<{ apiKey: string; language: string; endpointing: string }>('/voice/config'),
         processShopping: (transcript: string) => request<any>('/voice/shopping', { method: 'POST', body: JSON.stringify({ transcript }) }),
         processRecipes: (transcript: string) => request<any>('/voice/recipes', { method: 'POST', body: JSON.stringify({ transcript }) }),
+        processRecipeCommand: (transcript: string, recipeId: string) => request<any>('/voice/recipe-command', { method: 'POST', body: JSON.stringify({ transcript, recipeId }) }),
     },
 };

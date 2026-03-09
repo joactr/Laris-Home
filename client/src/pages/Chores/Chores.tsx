@@ -33,6 +33,17 @@ export default function Chores() {
 
     useEffect(() => { load(); }, [weekStart]);
 
+    // Scroll to today on mobile
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            const todayEl = document.querySelector('.today-highlight');
+            if (todayEl) {
+                todayEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [weekStart, instances]);
+
     const setStatus = async (id: string, status: string) => {
         await api.chores.updateStatus(id, status);
         load();

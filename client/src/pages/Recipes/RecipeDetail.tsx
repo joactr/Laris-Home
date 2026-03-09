@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { t } from '../../i18n';
+import { useVoiceStore } from '../../store/voice';
 import ConfirmModal from '../../components/ConfirmModal';
 
 export default function RecipeDetail() {
@@ -18,21 +19,47 @@ export default function RecipeDetail() {
     
     // Modal state
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
 
+    const load = useCallback(() => {
+        if (!id) return;
+        setLoading(true);
+        api.recipes.getById(id)
+            .then(data => setRecipe(data))
+            .catch(err => setError(err.message))
+            .finally(() => setLoading(false));
+    }, [id]);
+
+    useEffect(() => {
+        load();
+    }, [load]);
+
+    const handleVoiceResult = useCallback(async (transcript: string) => {
+        if (!id) return;
+        try {
+            const res = await api.voice.processRecipeCommand(transcript, id);
+            setVoiceMessage(res.message);
+            if (res.modified) {
+                setRecipe(res.recipe);
+            }
+        } catch (err: any) {
+            alert(err.message || t('common.error'));
+        }
+    }, [id]);
+
+    useEffect(() => {
+        const voiceStore = useVoiceStore.getState();
+        voiceStore.register(handleVoiceResult, t('voice.placeholder.recipes'));
+        return () => voiceStore.unregister();
+    }, [handleVoiceResult]);
+
+    // Separate useEffect for shopping lists as it's independent of recipe load
     useEffect(() => {
         api.shopping.getLists().then(ls => {
             setLists(ls);
             if (ls.length > 0) setSelectedListId(ls[0].id);
         });
     }, []);
-
-    useEffect(() => {
-        if (!id) return;
-        api.recipes.getById(id)
-            .then(data => setRecipe(data))
-            .catch(err => setError(err.message))
-            .finally(() => setLoading(false));
-    }, [id]);
 
     if (loading) return <div className="loading-center"><div className="spinner" /></div>;
     if (error || !recipe) return <div className="page" style={{ padding: '2rem', color: 'red' }}>Error: {error || 'Receta no encontrada'}</div>;
@@ -50,8 +77,8 @@ export default function RecipeDetail() {
     };
 
     const toggleIngredient = (id: string) => {
-        setSelectedIngredients(prev => 
-            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        setSelectedIngredients((prev: string[]) => 
+            prev.includes(id) ? prev.filter((i: string) => i !== id) : [...prev, id]
         );
     };
 
@@ -69,6 +96,7 @@ export default function RecipeDetail() {
             setIsAdding(false);
         }
     };
+
 
     return (
         <div className="page">
@@ -178,7 +206,7 @@ export default function RecipeDetail() {
                         <div className="form-group">
                             <label className="label" htmlFor="list-select">{t('page.shopping')}</label>
                             <select id="list-select" className="input" value={selectedListId} onChange={e => setSelectedListId(e.target.value)}>
-                                {lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                {lists.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
                             </select>
                         </div>
                         <div className="modal-actions">
@@ -200,6 +228,24 @@ export default function RecipeDetail() {
                 onCancel={() => setShowDeleteConfirm(false)}
                 isDanger
             />
+
+            {/* Voice Message Feedback */}
+            {voiceMessage && (
+                <div className="modal-overlay" onClick={() => setVoiceMessage(null)}>
+                    <div className="modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <span className="modal-title">Asistente de Voz</span>
+                            <button className="modal-close" onClick={() => setVoiceMessage(null)}>×</button>
+                        </div>
+                        <div style={{ padding: '0 0 16px' }}>
+                            {voiceMessage}
+                        </div>
+                        <div className="modal-actions">
+                            <button className="btn btn-primary" onClick={() => setVoiceMessage(null)}>{t('common.close')}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

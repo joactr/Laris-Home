@@ -46,6 +46,11 @@ export interface VoiceRecipesResult {
   message: string;
 }
 
+export interface RecipeCommandResult {
+  message: string;
+  modifiedRecipe?: ParsedRecipe | null;
+}
+
 const OPENROUTER_API_URL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-3.5-turbo';
@@ -423,6 +428,90 @@ Genera el JSON con el valor exacto por 1 ración.`;
     } catch (e) {
       console.error('Failed to parse LLM response for macros as JSON. Response:', resultText);
       return { caloriesPerServing: null, proteinPerServing: null, carbsPerServing: null, fatPerServing: null };
+    }
+  }
+
+  static async processRecipeCommand(
+    transcript: string,
+    recipe: { title: string, ingredients: string[], instructions: string }
+  ): Promise<RecipeCommandResult> {
+    if (!OPENROUTER_API_KEY) {
+      throw new Error('OPENROUTER_API_KEY is not configured');
+    }
+
+    const systemMessage = `Eres un asistente de cocina experto. Estás ayudando al usuario con una receta específica.
+El usuario puede hacer preguntas sobre la receta o pedir modificaciones (sustituir ingredientes, quitar algo, cambiar porciones, etc.).
+
+Receta actual:
+Título: ${recipe.title}
+Ingredientes: ${recipe.ingredients.join(', ')}
+Instrucciones: ${recipe.instructions}
+
+Instrucciones:
+1. Si el usuario hace una pregunta, respóndele de forma amable y concisa en el campo "message".
+2. Si el usuario pide un cambio ("quita el pollo", "hazlo vegetariano", "no tengo cebolla, qué uso?"), genera la nueva versión de la receta completa en el campo "modifiedRecipe".
+3. La versión modificada debe seguir el esquema ParsedRecipe.
+4. Siempre responde en español.
+
+Devuelve SOLO JSON con este formato:
+{
+  "message": "Respuesta al usuario",
+  "modifiedRecipe": {
+    "title": "string",
+    "description": "string",
+    "servings": 2,
+    "prepTimeMinutes": 15,
+    "cookTimeMinutes": 30,
+    "ingredients": [
+      {
+        "name": "nombre",
+        "originalText": "cantidad unidad nombre",
+        "quantity": 1,
+        "unit": "unidad",
+        "notes": "notas"
+      }
+    ],
+    "instructions": ["paso 1", "paso 2"]
+  }
+}
+Si no hay modificación, "modifiedRecipe" debe ser null.`;
+
+    const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://laris-home.local',
+        'X-Title': 'Laris Home'
+      },
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL,
+        messages: [
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: transcript }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
+    }
+
+    const data = await response.json() as any;
+    let resultText = data.choices[0].message.content;
+
+    try {
+      const startIndex = resultText.indexOf('{');
+      const endIndex = resultText.lastIndexOf('}');
+      if (startIndex === -1 || endIndex === -1) {
+        throw new Error('No JSON object found in response');
+      }
+      const jsonStr = resultText.substring(startIndex, endIndex + 1);
+      return JSON.parse(jsonStr) as RecipeCommandResult;
+    } catch (e) {
+      console.error('Failed to parse LLM response for recipe command as JSON. Response:', resultText);
+      throw new Error('Invalid JSON response from LLM');
     }
   }
 }

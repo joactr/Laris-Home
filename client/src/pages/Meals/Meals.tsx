@@ -45,6 +45,17 @@ export default function Meals() {
 
     useEffect(() => { load(); }, [weekStart]);
 
+    // Scroll to today on mobile
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            const todayEl = document.querySelector('.today-highlight');
+            if (todayEl) {
+                todayEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [weekStart, mealMap]);
+
     const startAddNew = (date: string, type: string) => {
         setEditingNew({ date, type });
         setEditVal('');
