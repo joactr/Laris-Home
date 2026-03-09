@@ -20,6 +20,8 @@ export default function RecipeDetail() {
     // Modal state
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
+    const [proposedRecipe, setProposedRecipe] = useState<any | null>(null);
+    const [isApplyingVoiceChange, setIsApplyingVoiceChange] = useState(false);
 
     const load = useCallback(() => {
         if (!id) return;
@@ -38,18 +40,39 @@ export default function RecipeDetail() {
         if (!id) return;
         try {
             const res = await api.voice.processRecipeCommand(transcript, id);
-            setVoiceMessage(res.message);
-            if (res.modified) {
-                setRecipe(res.recipe);
+            
+            if (res.modified && res.proposedRecipe) {
+                setProposedRecipe(res.proposedRecipe);
+                setVoiceMessage(res.message);
+            } else {
+                setVoiceMessage(res.message);
             }
         } catch (err: any) {
             alert(err.message || t('common.error'));
         }
     }, [id]);
 
+    const applyProposedChange = async () => {
+        if (!id || !proposedRecipe) return;
+        setIsApplyingVoiceChange(true);
+        try {
+            const updated = await api.recipes.update(id, {
+                ...proposedRecipe,
+                imageUrl: recipe.image_url
+            });
+            setRecipe(updated);
+            setProposedRecipe(null);
+            setVoiceMessage(null);
+        } catch (err: any) {
+            alert(err.message || t('common.error'));
+        } finally {
+            setIsApplyingVoiceChange(false);
+        }
+    };
+
     useEffect(() => {
         const voiceStore = useVoiceStore.getState();
-        voiceStore.register(handleVoiceResult, t('voice.placeholder.recipes'));
+        voiceStore.register(handleVoiceResult, t('voice.placeholder.recipe_detail'));
         return () => voiceStore.unregister();
     }, [handleVoiceResult]);
 
@@ -246,6 +269,19 @@ export default function RecipeDetail() {
                     </div>
                 </div>
             )}
+
+            {/* Voice Modification Confirmation Modal */}
+            <ConfirmModal
+                isOpen={!!proposedRecipe}
+                title="Confirmar cambios AI"
+                message={voiceMessage || "¿Deseas aplicar estos cambios a la receta?"}
+                onConfirm={applyProposedChange}
+                onCancel={() => {
+                    setProposedRecipe(null);
+                    setVoiceMessage(null);
+                }}
+                confirmText={isApplyingVoiceChange ? t('common.loading') : t('common.save')}
+            />
         </div>
     );
 }

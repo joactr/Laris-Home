@@ -200,6 +200,7 @@ export const translations: Record<string, Record<string, string>> = {
     'voice.thinking': 'Pensando opciones...',
     'voice.placeholder.shopping': 'Di algo como: "Añade 3 manzanas y 2 yogures"',
     'voice.placeholder.recipes': 'Di algo como: "Tengo pollo y arroz, ¿qué cocino?"',
+    'voice.placeholder.recipe_detail': 'Pregunta sobre la receta o pide ajustes...',
     'voice.placeholder.generic': 'Háblame, te escucho...',
     'voice.error.noItems': 'No se detectaron items.',
     'voice.error.noRecipes': 'No se detectaron recetas.',

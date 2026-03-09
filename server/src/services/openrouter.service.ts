@@ -447,15 +447,15 @@ Título: ${recipe.title}
 Ingredientes: ${recipe.ingredients.join(', ')}
 Instrucciones: ${recipe.instructions}
 
-Instrucciones:
-1. Si el usuario hace una pregunta, respóndele de forma amable y concisa en el campo "message".
-2. Si el usuario pide un cambio ("quita el pollo", "hazlo vegetariano", "no tengo cebolla, qué uso?"), genera la nueva versión de la receta completa en el campo "modifiedRecipe".
+Instrucciones de comportamiento:
+1. Si el usuario hace una pregunta o pide consejo (ej: "¿crees que quedaría mejor con más mantequilla?"), RESPONDE de forma amable y experta en el campo "message". NO generes un "modifiedRecipe" a menos que el usuario diga explícitamente que lo cambies (ej: "Añade más mantequilla entonces", "Cambia el pollo por pavo").
+2. Si el usuario pide un cambio explícito, genera la nueva versión de la receta completa en el campo "modifiedRecipe" y explica brevemente qué has cambiado en el campo "message".
 3. La versión modificada debe seguir el esquema ParsedRecipe.
 4. Siempre responde en español.
 
 Devuelve SOLO JSON con este formato:
 {
-  "message": "Respuesta al usuario",
+  "message": "Respuesta al usuario o explicación del cambio",
   "modifiedRecipe": {
     "title": "string",
     "description": "string",
@@ -468,13 +468,13 @@ Devuelve SOLO JSON con este formato:
         "originalText": "cantidad unidad nombre",
         "quantity": 1,
         "unit": "unidad",
-        "notes": "notas"
+        "notes": "string"
       }
     ],
     "instructions": ["paso 1", "paso 2"]
   }
 }
-Si no hay modificación, "modifiedRecipe" debe ser null.`;
+Si no hay cambio explícito solicitado, "modifiedRecipe" DEBE ser null.`;
 
     const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
       method: 'POST',

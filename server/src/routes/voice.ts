@@ -156,7 +156,7 @@ router.post('/recipe-command', async (req: AuthRequest, res: Response) => {
       try {
         const macros = await OpenRouterService.calculateMacros(
           result.modifiedRecipe.title,
-          result.modifiedRecipe.ingredients.map(i => i.originalText || i.name),
+          result.modifiedRecipe.ingredients.map((i: any) => i.originalText || i.name),
           result.modifiedRecipe.servings || 1
         );
         Object.assign(result.modifiedRecipe, macros);
@@ -164,14 +164,10 @@ router.post('/recipe-command', async (req: AuthRequest, res: Response) => {
         console.error('Failed to recalculate macros during voice modification:', e);
       }
 
-      // Update the recipe in DB
-      const updated = await RecipeService.updateRecipe(householdId, recipeId, {
-        ...result.modifiedRecipe,
-        imageUrl: currentRecipe.image_url
-      });
+      // Return the proposed recipe to the frontend for confirmation
       res.json({
         message: result.message,
-        recipe: updated,
+        proposedRecipe: result.modifiedRecipe,
         modified: true
       });
     } else {
