@@ -17,6 +17,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         },
         body: options.body,
     });
+    if (res.status === 401) {
+        useAuthStore.getState().logout();
+        throw new Error('TOKEN_EXPIRED');
+    }
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         const errMsg = typeof err.error === 'string'

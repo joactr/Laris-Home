@@ -14,7 +14,25 @@ export default function RecipeEditPage() {
     useEffect(() => {
         if (!id) return;
         api.recipes.getById(id)
-            .then(data => setRecipe(data))
+            .then(data => {
+                // Normalize data to camelCase for the form
+                const normalized = {
+                    ...data,
+                    sourceUrl: data.sourceUrl ?? data.source_url ?? '',
+                    imageUrl: data.imageUrl ?? data.image_url ?? '',
+                    prepTimeMinutes: data.prepTimeMinutes ?? data.prep_time_minutes,
+                    cookTimeMinutes: data.cookTimeMinutes ?? data.cook_time_minutes,
+                    caloriesPerServing: data.caloriesPerServing ?? data.calories_per_serving,
+                    proteinPerServing: data.proteinPerServing ?? data.protein_per_serving,
+                    carbsPerServing: data.carbsPerServing ?? data.carbs_per_serving,
+                    fatPerServing: data.fatPerServing ?? data.fat_per_serving,
+                    ingredients: (data.ingredients || []).map((ing: any) => ({
+                        ...ing,
+                        originalText: ing.originalText ?? ing.original_text ?? '',
+                    }))
+                };
+                setRecipe(normalized);
+            })
             .catch(err => setError(err.message))
             .finally(() => setLoading(false));
     }, [id]);
@@ -32,15 +50,15 @@ export default function RecipeEditPage() {
             const payload = {
                 title: recipe.title,
                 description: recipe.description ?? '',
-                sourceUrl: recipe.source_url || recipe.sourceUrl || '',
-                imageUrl: recipe.image_url || recipe.imageUrl || '',
+                sourceUrl: recipe.sourceUrl || '',
+                imageUrl: recipe.imageUrl || '',
                 servings: toNum(recipe.servings),
-                prepTimeMinutes: toNum(recipe.prepTimeMinutes ?? recipe.prep_time_minutes),
-                cookTimeMinutes: toNum(recipe.cookTimeMinutes ?? recipe.cook_time_minutes),
-                caloriesPerServing: toNum(recipe.caloriesPerServing ?? recipe.calories_per_serving),
-                proteinPerServing: toNum(recipe.proteinPerServing ?? recipe.protein_per_serving),
-                carbsPerServing: toNum(recipe.carbsPerServing ?? recipe.carbs_per_serving),
-                fatPerServing: toNum(recipe.fatPerServing ?? recipe.fat_per_serving),
+                prepTimeMinutes: toNum(recipe.prepTimeMinutes),
+                cookTimeMinutes: toNum(recipe.cookTimeMinutes),
+                caloriesPerServing: toNum(recipe.caloriesPerServing),
+                proteinPerServing: toNum(recipe.proteinPerServing),
+                carbsPerServing: toNum(recipe.carbsPerServing),
+                fatPerServing: toNum(recipe.fatPerServing),
                 ingredients: recipe.ingredients.map((ing: any) => ({
                     name: ing.name,
                     originalText: ing.originalText ?? ing.original_text ?? ing.name,
@@ -118,8 +136,8 @@ export default function RecipeEditPage() {
                         className="input"
                         type="url"
                         placeholder="https://..."
-                        value={recipe.source_url || recipe.sourceUrl || ''}
-                        onChange={e => setRecipe({ ...recipe, sourceUrl: e.target.value, source_url: e.target.value })}
+                        value={recipe.sourceUrl || ''}
+                        onChange={e => setRecipe({ ...recipe, sourceUrl: e.target.value })}
                     />
                 </div>
 
@@ -129,13 +147,13 @@ export default function RecipeEditPage() {
                         className="input"
                         type="url"
                         placeholder="https://..."
-                        value={recipe.image_url || recipe.imageUrl || ''}
-                        onChange={e => setRecipe({ ...recipe, imageUrl: e.target.value, image_url: e.target.value })}
+                        value={recipe.imageUrl || ''}
+                        onChange={e => setRecipe({ ...recipe, imageUrl: e.target.value })}
                     />
-                    {(recipe.image_url || recipe.imageUrl) && (
+                    {recipe.imageUrl && (
                         <div style={{ marginTop: '8px' }}>
                             <img 
-                                src={recipe.image_url || recipe.imageUrl} 
+                                src={recipe.imageUrl} 
                                 alt="Vista previa" 
                                 style={{ maxHeight: '150px', borderRadius: '8px', objectFit: 'cover' }} 
                                 onError={(e) => (e.currentTarget.style.display = 'none')}
@@ -160,8 +178,8 @@ export default function RecipeEditPage() {
                         <input
                             type="number"
                             className="input"
-                            value={recipe.prepTimeMinutes || recipe.prep_time_minutes || ''}
-                            onChange={e => setRecipe({ ...recipe, prepTimeMinutes: parseInt(e.target.value) })}
+                            value={recipe.prepTimeMinutes || ''}
+                            onChange={e => setRecipe({ ...recipe, prepTimeMinutes: e.target.value === '' ? null : parseInt(e.target.value) })}
                         />
                     </div>
                     <div className="form-group">
@@ -169,8 +187,8 @@ export default function RecipeEditPage() {
                         <input
                             type="number"
                             className="input"
-                            value={recipe.cookTimeMinutes || recipe.cook_time_minutes || ''}
-                            onChange={e => setRecipe({ ...recipe, cookTimeMinutes: parseInt(e.target.value) })}
+                            value={recipe.cookTimeMinutes || ''}
+                            onChange={e => setRecipe({ ...recipe, cookTimeMinutes: e.target.value === '' ? null : parseInt(e.target.value) })}
                         />
                     </div>
                 </div>
@@ -181,8 +199,8 @@ export default function RecipeEditPage() {
                         <input
                             type="number"
                             className="input"
-                            value={recipe.calories_per_serving || recipe.caloriesPerServing || ''}
-                            onChange={e => setRecipe({ ...recipe, caloriesPerServing: parseInt(e.target.value) })}
+                            value={recipe.caloriesPerServing || ''}
+                            onChange={e => setRecipe({ ...recipe, caloriesPerServing: e.target.value === '' ? null : parseInt(e.target.value) })}
                         />
                     </div>
                     <div className="form-group">
@@ -190,8 +208,8 @@ export default function RecipeEditPage() {
                         <input
                             type="number"
                             className="input"
-                            value={recipe.protein_per_serving || recipe.proteinPerServing || ''}
-                            onChange={e => setRecipe({ ...recipe, proteinPerServing: parseInt(e.target.value) })}
+                            value={recipe.proteinPerServing || ''}
+                            onChange={e => setRecipe({ ...recipe, proteinPerServing: e.target.value === '' ? null : parseFloat(e.target.value) })}
                         />
                     </div>
                     <div className="form-group">
@@ -199,8 +217,8 @@ export default function RecipeEditPage() {
                         <input
                             type="number"
                             className="input"
-                            value={recipe.carbs_per_serving || recipe.carbsPerServing || ''}
-                            onChange={e => setRecipe({ ...recipe, carbsPerServing: parseInt(e.target.value) })}
+                            value={recipe.carbsPerServing || ''}
+                            onChange={e => setRecipe({ ...recipe, carbsPerServing: e.target.value === '' ? null : parseFloat(e.target.value) })}
                         />
                     </div>
                     <div className="form-group">
@@ -208,8 +226,8 @@ export default function RecipeEditPage() {
                         <input
                             type="number"
                             className="input"
-                            value={recipe.fat_per_serving || recipe.fatPerServing || ''}
-                            onChange={e => setRecipe({ ...recipe, fatPerServing: parseInt(e.target.value) })}
+                            value={recipe.fatPerServing || ''}
+                            onChange={e => setRecipe({ ...recipe, fatPerServing: e.target.value === '' ? null : parseFloat(e.target.value) })}
                         />
                     </div>
                 </div>

@@ -15,7 +15,7 @@ const RecipeSaveSchema = z.object({
   title: z.string(),
   description: z.string(),
   sourceUrl: z.union([z.string().url(), z.literal(""), z.null()]).optional(),
-  imageUrl: z.string().url().nullable().optional(),
+  imageUrl: z.union([z.string().url(), z.literal(""), z.null()]).optional(),
   servings: z.number().nullable().optional(),
   prepTimeMinutes: z.number().nullable().optional(),
   cookTimeMinutes: z.number().nullable().optional(),

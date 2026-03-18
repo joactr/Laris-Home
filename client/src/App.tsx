@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from './store/auth';
 import { requestNotificationPermission, subscribeUserToPush } from './services/push.service';
@@ -21,62 +21,98 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
     return token ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
-export default function App() {
-    const token = useAuthStore((s) => s.token);
-    useEffect(() => {
-    // Other effects...
-    
-    // Request notification permissions and subscribe on mount
-    const initPush = async () => {
-      try {
-        const granted = await requestNotificationPermission();
-        const authData = localStorage.getItem('laris-home-auth');
-        let hasToken = null;
-        if (authData) {
-          try {
-            hasToken = JSON.parse(authData).state?.token;
-          } catch (e) {
-            console.error('Error parsing authData:', e);
-          }
-        }
-        
-        if (granted && hasToken) {
-          await subscribeUserToPush();
-        }
-      } catch (err) {
-        console.error('Push initialization error:', err);
-      }
-    };
-    initPush();
-  }, [token]);
+async function validateToken(token: string): Promise<boolean> {
+    try {
+        const res = await fetch('/api/auth/me', {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
 
-  return (
-        <BrowserRouter>
-            <Routes>
-                <Route path="/login" element={token ? <Navigate to="/" replace /> : <AuthPage />} />
-                <Route
-                    path="/*"
-                    element={
-                        <PrivateRoute>
-                            <Layout>
-                                <Routes>
-                                    <Route path="/" element={<Dashboard />} />
-                                    <Route path="/shopping" element={<Shopping />} />
-                                    <Route path="/calendar" element={<Calendar />} />
-                                    <Route path="/chores" element={<Chores />} />
-                                    <Route path="/meals" element={<Meals />} />
-                                    <Route path="/recipes" element={<Recipes />} />
-                                    <Route path="/recipes/import" element={<RecipeImportPage />} />
-                                    <Route path="/recipes/:id" element={<RecipeDetail />} />
-                                    <Route path="/recipes/:id/edit" element={<RecipeEditPage />} />
-                                    <Route path="/projects/*" element={<Projects />} />
-                                    <Route path="/admin" element={<AdminUsersPage />} />
-                                </Routes>
-                            </Layout>
-                        </PrivateRoute>
+function AppContent() {
+    const token = useAuthStore((s) => s.token);
+    const logout = useAuthStore((s) => s.logout);
+    const [validating, setValidating] = useState(true);
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        const initAuth = async () => {
+            if (token) {
+                const isValid = await validateToken(token);
+                if (!isValid) {
+                    logout();
+                    navigate('/login', { replace: true });
+                }
+            }
+            setValidating(false);
+        };
+        initAuth();
+    }, [token, logout, navigate]);
+
+    useEffect(() => {
+        const initPush = async () => {
+            try {
+                const granted = await requestNotificationPermission();
+                const authData = localStorage.getItem('laris-home-auth');
+                let hasToken = null;
+                if (authData) {
+                    try {
+                        hasToken = JSON.parse(authData).state?.token;
+                    } catch (e) {
+                        console.error('Error parsing authData:', e);
                     }
-                />
-            </Routes>
+                }
+
+                if (granted && hasToken) {
+                    await subscribeUserToPush();
+                }
+            } catch (err) {
+                console.error('Push initialization error:', err);
+            }
+        };
+        initPush();
+    }, [token]);
+
+    if (validating) {
+        return null;
+    }
+
+    return (
+        <Routes>
+            <Route path="/login" element={token ? <Navigate to="/" replace /> : <AuthPage />} />
+            <Route
+                path="/*"
+                element={
+                    <PrivateRoute>
+                        <Layout>
+                            <Routes>
+                                <Route path="/" element={<Dashboard />} />
+                                <Route path="/shopping" element={<Shopping />} />
+                                <Route path="/calendar" element={<Calendar />} />
+                                <Route path="/chores" element={<Chores />} />
+                                <Route path="/meals" element={<Meals />} />
+                                <Route path="/recipes" element={<Recipes />} />
+                                <Route path="/recipes/import" element={<RecipeImportPage />} />
+                                <Route path="/recipes/:id" element={<RecipeDetail />} />
+                                <Route path="/recipes/:id/edit" element={<RecipeEditPage />} />
+                                <Route path="/projects/*" element={<Projects />} />
+                                <Route path="/admin" element={<AdminUsersPage />} />
+                            </Routes>
+                        </Layout>
+                    </PrivateRoute>
+                }
+            />
+        </Routes>
+    );
+}
+
+export default function App() {
+    return (
+        <BrowserRouter>
+            <AppContent />
         </BrowserRouter>
     );
 }
