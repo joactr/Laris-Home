@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { OpenRouterService } from '../services/openrouter.service';
 import { EmbeddingService } from '../services/embedding.service';
-import { RecipeService } from '../services/recipe.service';
 import pool from '../db/pool';
 
 const router = Router();
@@ -27,6 +26,54 @@ const TranscriptSchema = z.object({
   recipeId: z.string().optional()
 });
 
+type VoiceStatus = 'success' | 'needs_review' | 'fallback';
+
+type VoiceEnvelope<T extends Record<string, unknown>> = {
+  status: VoiceStatus;
+  message: string;
+  code?: string;
+  retryable?: boolean;
+  transcript?: string;
+} & T;
+
+function sendVoiceEnvelope<T extends Record<string, unknown>>(res: Response, payload: VoiceEnvelope<T>) {
+  res.json(payload);
+}
+
+function classifyVoiceError(err: any) {
+  const message = String(err?.message || '').toLowerCase();
+
+  if (message.includes('not configured')) {
+    return {
+      code: 'provider_unavailable',
+      retryable: false,
+      message: 'La función de voz no está configurada ahora mismo.',
+    };
+  }
+
+  if (message.includes('openrouter api error') || message.includes('fetch failed')) {
+    return {
+      code: 'provider_unavailable',
+      retryable: true,
+      message: 'No he podido contactar con el proveedor de IA. Puedes reintentarlo en un momento.',
+    };
+  }
+
+  if (message.includes('invalid json')) {
+    return {
+      code: 'invalid_response',
+      retryable: true,
+      message: 'La respuesta de IA no fue lo bastante clara. Inténtalo de nuevo o usa la opción manual.',
+    };
+  }
+
+  return {
+    code: 'processing_failed',
+    retryable: true,
+    message: 'No he podido procesar la solicitud de voz. Inténtalo de nuevo o usa la opción manual.',
+  };
+}
+
 router.post('/shopping', async (req: AuthRequest, res: Response) => {
   const parsed = TranscriptSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -36,10 +83,41 @@ router.post('/shopping', async (req: AuthRequest, res: Response) => {
 
   try {
     const result = await OpenRouterService.parseVoiceShopping(parsed.data.transcript);
-    res.json(result);
+    const items = (result.items || [])
+      .map((item) => ({
+        name: String(item.name || '').trim(),
+        quantity: Number(item.quantity) > 0 ? Number(item.quantity) : 1,
+      }))
+      .filter((item) => item.name.length > 0);
+
+    if (items.length === 0) {
+      sendVoiceEnvelope(res, {
+        status: 'fallback',
+        code: 'no_items',
+        retryable: false,
+        transcript: parsed.data.transcript,
+        message: 'No he detectado artículos claros en tu petición. Puedes reintentarlo o añadirlos manualmente.',
+        items: [],
+      });
+      return;
+    }
+
+    sendVoiceEnvelope(res, {
+      status: 'needs_review',
+      code: 'review_required',
+      retryable: true,
+      transcript: parsed.data.transcript,
+      message: result.message || 'He detectado estos artículos. Revísalos antes de añadirlos.',
+      items,
+    });
   } catch (err: any) {
     console.error('Voice Shopping Error:', err);
-    res.status(500).json({ error: 'Error procesando la solicitud de compras por voz.' });
+    sendVoiceEnvelope(res, {
+      status: 'fallback',
+      transcript: parsed.data.transcript,
+      items: [],
+      ...classifyVoiceError(err),
+    });
   }
 });
 
@@ -101,10 +179,34 @@ router.post('/recipes', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    res.json(result);
+    if (!result.recipes?.length) {
+      sendVoiceEnvelope(res, {
+        status: 'fallback',
+        code: 'no_matches',
+        retryable: false,
+        transcript: parsed.data.transcript,
+        message: 'No he encontrado recetas útiles con esa petición. Puedes probar con otros ingredientes o usar la búsqueda manual.',
+        recipes: [],
+      });
+      return;
+    }
+
+    sendVoiceEnvelope(res, {
+      status: 'needs_review',
+      code: 'review_required',
+      retryable: true,
+      transcript: parsed.data.transcript,
+      message: result.message || 'He preparado algunas opciones para que las revises.',
+      recipes: result.recipes,
+    });
   } catch (err: any) {
     console.error('Voice Recipes Error:', err);
-    res.status(500).json({ error: 'Error procesando la solicitud de recetas por voz.' });
+    sendVoiceEnvelope(res, {
+      status: 'fallback',
+      transcript: parsed.data.transcript,
+      recipes: [],
+      ...classifyVoiceError(err),
+    });
   }
 });
 
@@ -165,20 +267,34 @@ router.post('/recipe-command', async (req: AuthRequest, res: Response) => {
       }
 
       // Return the proposed recipe to the frontend for confirmation
-      res.json({
+      sendVoiceEnvelope(res, {
+        status: 'needs_review',
+        code: 'review_required',
+        retryable: true,
+        transcript,
         message: result.message,
         proposedRecipe: result.modifiedRecipe,
         modified: true
       });
     } else {
-      res.json({
+      sendVoiceEnvelope(res, {
+        status: 'success',
+        code: 'answered',
+        retryable: true,
+        transcript,
         message: result.message,
         modified: false
       });
     }
   } catch (err: any) {
     console.error('Voice Recipe Command Error:', err);
-    res.status(500).json({ error: 'Error procesando el comando de voz para la receta.' });
+    sendVoiceEnvelope(res, {
+      status: 'fallback',
+      transcript,
+      modified: false,
+      proposedRecipe: null,
+      ...classifyVoiceError(err),
+    });
   }
 });
 
