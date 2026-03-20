@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { t } from '../../i18n';
 import { useVoiceStore } from '../../store/voice';
-import ConfirmModal from '../../components/ConfirmModal';
+import StatusModal from '../../components/StatusModal';
 
 export default function Recipes() {
     const navigate = useNavigate();
@@ -13,9 +13,11 @@ export default function Recipes() {
     const [suggestedRecipes, setSuggestedRecipes] = useState<any[] | null>(null);
     const [voiceMessage, setVoiceMessage] = useState<string>('');
     const [savingIndex, setSavingIndex] = useState<number | null>(null);
+    const [voiceTranscript, setVoiceTranscript] = useState('');
+    const [voiceFallback, setVoiceFallback] = useState<{ message: string; transcript: string } | null>(null);
     
     // AI Enriching confirmation state
-    const [recipeToEnrich, setRecipeToEnrich] = useState<{name: string, ingredients: string[], instructions: string, index: number} | null>(null);
+    const [recipeToEnrich, setRecipeToEnrich] = useState<{name: string, ingredients: string[], instructions: string, index: number, imageUrl: string} | null>(null);
 
     const load = async () => {
         const data = await api.recipes.getAll();
@@ -32,14 +34,24 @@ export default function Recipes() {
     const handleVoiceResult = useCallback(async (finalText: string) => {
         try {
             const res = await api.voice.processRecipes(finalText);
-            if (res.recipes && res.recipes.length) {
+            setVoiceTranscript(res.transcript || finalText);
+            if (res.status === 'needs_review' && res.recipes && res.recipes.length) {
                 setSuggestedRecipes(res.recipes);
                 setVoiceMessage(res.message || t('recipes.suggestedTitle'));
+                setVoiceFallback(null);
             } else {
-                alert(t('voice.error.noRecipes'));
+                setSearch(finalText);
+                setVoiceFallback({
+                    message: res.message || t('voice.error.noRecipes'),
+                    transcript: res.transcript || finalText,
+                });
             }
         } catch (err: any) {
-            alert(err.message || t('common.error'));
+            setSearch(finalText);
+            setVoiceFallback({
+                message: err.message || t('common.error'),
+                transcript: finalText,
+            });
         }
     }, []);
 
@@ -51,7 +63,7 @@ export default function Recipes() {
 
     const confirmEnrich = async () => {
         if (!recipeToEnrich) return;
-        const { name, ingredients, instructions, index } = recipeToEnrich;
+        const { name, ingredients, instructions, index, imageUrl } = recipeToEnrich;
         setRecipeToEnrich(null);
         try {
             setSavingIndex(index);
@@ -59,6 +71,7 @@ export default function Recipes() {
                 title: name,
                 ingredients,
                 instructions,
+                imageUrl,
             });
             alert(t('recipes.saveNewAiSuccess'));
             load();
@@ -137,6 +150,11 @@ export default function Recipes() {
                         </div>
                         <div style={{ padding: '0 0 16px', maxHeight: '70vh', overflowY: 'auto' }}>
                             <p style={{ marginBottom: 16 }}>{voiceMessage}</p>
+                            {voiceTranscript && (
+                                <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: 10, marginBottom: 16, color: 'var(--text-secondary)', fontSize: 13 }}>
+                                    <strong>{t('voice.transcriptLabel')}:</strong> {voiceTranscript}
+                                </div>
+                            )}
                             <div style={{ display: 'grid', gap: 16 }}>
                                 {suggestedRecipes.map((r, idx) => (
                                     <div key={idx} style={{ background: 'var(--bg-tertiary)', padding: "12px", borderRadius: 8 }}>
@@ -153,7 +171,7 @@ export default function Recipes() {
                                                 <button 
                                                     className="btn btn-secondary btn-sm touch-target" 
                                                     disabled={savingIndex !== null}
-                                                    onClick={() => setRecipeToEnrich({ name: r.name, ingredients: r.ingredients, instructions: r.instructions, index: idx })}
+                                                    onClick={() => setRecipeToEnrich({ name: r.name, ingredients: r.ingredients, instructions: r.instructions, index: idx, imageUrl: r.image || '' })}
                                                 >
                                                     {savingIndex === idx ? t('recipes.savingAi') : t('recipes.saveNewAi')}
                                                 </button>
@@ -167,13 +185,57 @@ export default function Recipes() {
                 </div>
             )}
 
-            {/* AI Enrichment Confirmation Modal */}
-            <ConfirmModal
-                isOpen={!!recipeToEnrich}
-                title={t('recipes.saveNewAi')}
-                message={t('recipes.saveNewAiConfirm', recipeToEnrich?.name || '')}
-                onConfirm={confirmEnrich}
-                onCancel={() => setRecipeToEnrich(null)}
+            {recipeToEnrich && (
+                <div className="modal-overlay" onClick={() => setRecipeToEnrich(null)}>
+                    <div className="modal" style={{ width: '90%', maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <span className="modal-title">{t('recipes.saveNewAi')}</span>
+                            <button className="modal-close touch-target" onClick={() => setRecipeToEnrich(null)} aria-label={t('common.close')}>×</button>
+                        </div>
+                        <div style={{ padding: '0 0 16px' }}>
+                            <p style={{ marginBottom: 16 }}>{t('recipes.saveNewAiConfirm', recipeToEnrich.name)}</p>
+                            <div className="form-group">
+                                <label className="label">URL de la Imagen (opcional)</label>
+                                <input
+                                    className="input"
+                                    type="url"
+                                    placeholder="https://..."
+                                    value={recipeToEnrich.imageUrl}
+                                    onChange={e => setRecipeToEnrich({ ...recipeToEnrich, imageUrl: e.target.value })}
+                                />
+                            </div>
+                            {recipeToEnrich.imageUrl && (
+                                <div style={{ marginTop: 8 }}>
+                                    <img
+                                        src={recipeToEnrich.imageUrl}
+                                        alt="Vista previa"
+                                        style={{ width: '100%', maxHeight: '220px', borderRadius: '8px', objectFit: 'cover' }}
+                                        onError={(e) => (e.currentTarget.style.display = 'none')}
+                                        onLoad={(e) => (e.currentTarget.style.display = 'block')}
+                                    />
+                                </div>
+                            )}
+                            <div className="modal-actions" style={{ marginTop: 16 }}>
+                                <button type="button" className="btn btn-secondary" onClick={() => setRecipeToEnrich(null)}>{t('common.cancel')}</button>
+                                <button type="button" className="btn btn-primary" onClick={confirmEnrich}>
+                                    {savingIndex === recipeToEnrich.index ? t('recipes.savingAi') : t('common.save')}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <StatusModal
+                isOpen={!!voiceFallback}
+                title={t('recipes.voiceFallbackTitle')}
+                message={voiceFallback?.message || ''}
+                details={voiceFallback?.transcript ? `${t('voice.transcriptLabel')}: ${voiceFallback.transcript}` : null}
+                primaryText={t('common.retry')}
+                secondaryText={t('common.close')}
+                onPrimary={voiceFallback?.transcript ? () => handleVoiceResult(voiceFallback.transcript) : undefined}
+                onSecondary={() => setVoiceFallback(null)}
+                onClose={() => setVoiceFallback(null)}
             />
         </div>
     );

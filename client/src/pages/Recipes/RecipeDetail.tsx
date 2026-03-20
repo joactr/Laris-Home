@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { t } from '../../i18n';
 import { useVoiceStore } from '../../store/voice';
 import ConfirmModal from '../../components/ConfirmModal';
+import StatusModal from '../../components/StatusModal';
 
 export default function RecipeDetail() {
     const { id } = useParams<{ id: string }>();
@@ -22,6 +23,8 @@ export default function RecipeDetail() {
     const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
     const [proposedRecipe, setProposedRecipe] = useState<any | null>(null);
     const [isApplyingVoiceChange, setIsApplyingVoiceChange] = useState(false);
+    const [voiceTranscript, setVoiceTranscript] = useState('');
+    const [voiceFallback, setVoiceFallback] = useState<{ message: string; transcript: string } | null>(null);
 
     const load = useCallback(() => {
         if (!id) return;
@@ -40,15 +43,28 @@ export default function RecipeDetail() {
         if (!id) return;
         try {
             const res = await api.voice.processRecipeCommand(transcript, id);
+            setVoiceTranscript(res.transcript || transcript);
             
-            if (res.modified && res.proposedRecipe) {
+            if (res.status === 'needs_review' && res.modified && res.proposedRecipe) {
                 setProposedRecipe(res.proposedRecipe);
                 setVoiceMessage(res.message);
+                setVoiceFallback(null);
             } else {
-                setVoiceMessage(res.message);
+                if (res.status === 'fallback') {
+                    setVoiceFallback({
+                        message: res.message,
+                        transcript: res.transcript || transcript,
+                    });
+                } else {
+                    setVoiceMessage(res.message);
+                    setVoiceFallback(null);
+                }
             }
         } catch (err: any) {
-            alert(err.message || t('common.error'));
+            setVoiceFallback({
+                message: err.message || t('common.error'),
+                transcript,
+            });
         }
     }, [id]);
 
@@ -64,7 +80,10 @@ export default function RecipeDetail() {
             setProposedRecipe(null);
             setVoiceMessage(null);
         } catch (err: any) {
-            alert(err.message || t('common.error'));
+            setVoiceFallback({
+                message: err.message || t('common.error'),
+                transcript: voiceTranscript,
+            });
         } finally {
             setIsApplyingVoiceChange(false);
         }
@@ -95,7 +114,10 @@ export default function RecipeDetail() {
             setShowDeleteConfirm(false);
             navigate('/recipes');
         } catch (err: any) {
-            alert(err.message || 'Error deleting recipe');
+            setVoiceFallback({
+                message: err.message || 'Error deleting recipe',
+                transcript: '',
+            });
         }
     };
 
@@ -110,11 +132,17 @@ export default function RecipeDetail() {
         setIsAdding(true);
         try {
             await api.recipes.addToShoppingList(recipe.id, selectedListId, selectedIngredients);
-            alert('¡Ingredientes añadidos con éxito!');
+            setVoiceFallback({
+                message: '¡Ingredientes añadidos con éxito!',
+                transcript: '',
+            });
             setShowShoppingModal(false);
             setSelectedIngredients([]);
         } catch (err: any) {
-            alert(err.message || 'Error al añadir ingredientes');
+            setVoiceFallback({
+                message: err.message || 'Error al añadir ingredientes',
+                transcript: '',
+            });
         } finally {
             setIsAdding(false);
         }
@@ -262,6 +290,11 @@ export default function RecipeDetail() {
                         </div>
                         <div style={{ padding: '0 0 16px' }}>
                             {voiceMessage}
+                            {voiceTranscript && (
+                                <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: 10, marginTop: 16, color: 'var(--text-secondary)', fontSize: 13 }}>
+                                    <strong>{t('voice.transcriptLabel')}:</strong> {voiceTranscript}
+                                </div>
+                            )}
                         </div>
                         <div className="modal-actions">
                             <button className="btn btn-primary" onClick={() => setVoiceMessage(null)}>{t('common.close')}</button>
@@ -274,13 +307,25 @@ export default function RecipeDetail() {
             <ConfirmModal
                 isOpen={!!proposedRecipe}
                 title="Confirmar cambios AI"
-                message={voiceMessage || "¿Deseas aplicar estos cambios a la receta?"}
+                message={`${voiceMessage || "¿Deseas aplicar estos cambios a la receta?"}${voiceTranscript ? `\n\n${t('voice.transcriptLabel')}: ${voiceTranscript}` : ''}`}
                 onConfirm={applyProposedChange}
                 onCancel={() => {
                     setProposedRecipe(null);
                     setVoiceMessage(null);
                 }}
                 confirmText={isApplyingVoiceChange ? t('common.loading') : t('common.save')}
+            />
+
+            <StatusModal
+                isOpen={!!voiceFallback}
+                title={t('recipes.voiceRecipeChangeTitle')}
+                message={voiceFallback?.message || ''}
+                details={voiceFallback?.transcript ? `${t('voice.transcriptLabel')}: ${voiceFallback.transcript}` : null}
+                primaryText={voiceFallback?.transcript ? t('common.retry') : undefined}
+                secondaryText={voiceFallback?.transcript ? t('common.close') : undefined}
+                onPrimary={voiceFallback?.transcript ? () => handleVoiceResult(voiceFallback.transcript) : undefined}
+                onSecondary={voiceFallback?.transcript ? () => setVoiceFallback(null) : undefined}
+                onClose={() => setVoiceFallback(null)}
             />
         </div>
     );

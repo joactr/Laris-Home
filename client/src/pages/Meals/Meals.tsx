@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { es } from 'date-fns/locale';
 import { t } from '../../i18n';
+import { useOfflineStore } from '../../store/offline';
+import StatusModal from '../../components/StatusModal';
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
 
@@ -25,6 +27,11 @@ export default function Meals() {
     const [lists, setLists] = useState<any[]>([]);
     const [recipes, setRecipes] = useState<any[]>([]);
     const [selectedList, setSelectedList] = useState('');
+    const [showWeekShoppingModal, setShowWeekShoppingModal] = useState(false);
+    const [weekShoppingPreview, setWeekShoppingPreview] = useState({ recipeMealCount: 0, skippedTextMealsCount: 0 });
+    const [weekShoppingResult, setWeekShoppingResult] = useState<{ addedCount: number; skippedTextMealsCount: number } | null>(null);
+    const [weekShoppingError, setWeekShoppingError] = useState<string | null>(null);
+    const isOffline = useOfflineStore((s) => s.isOffline);
 
     const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
     const weekEnd = addDays(weekStart, 6);
@@ -100,6 +107,33 @@ export default function Meals() {
         setIngredientText('');
     };
 
+    const openWeekShoppingModal = () => {
+        const summary = Object.values(mealMap).flat().reduce((acc, item: any) => {
+            if (item.recipe_id) acc.recipeMealCount += 1;
+            else acc.skippedTextMealsCount += 1;
+            return acc;
+        }, { recipeMealCount: 0, skippedTextMealsCount: 0 });
+        setWeekShoppingPreview(summary);
+        setShowWeekShoppingModal(true);
+    };
+
+    const generateWeekShopping = async () => {
+        try {
+            const result = await api.meals.generateShoppingFromRange(
+                format(weekStart, 'yyyy-MM-dd'),
+                format(weekEnd, 'yyyy-MM-dd'),
+                selectedList
+            );
+            setShowWeekShoppingModal(false);
+            setWeekShoppingResult({
+                addedCount: result.addedCount,
+                skippedTextMealsCount: result.skippedTextMealsCount,
+            });
+        } catch (err: any) {
+            setWeekShoppingError(err.message || t('common.error'));
+        }
+    };
+
     return (
         <div className="page full-width">
             <div className="page-header">
@@ -110,6 +144,13 @@ export default function Meals() {
                     </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button
+                        className="btn btn-secondary btn-sm touch-target"
+                        onClick={openWeekShoppingModal}
+                        disabled={isOffline || !selectedList}
+                    >
+                        {t('meals.generateWeekShopping')}
+                    </button>
                     <button className="btn-icon touch-target" onClick={() => setWeekStart(subWeeks(weekStart, 1))} aria-label={t('common.prev')}>←</button>
                     <button className="btn-icon touch-target" onClick={() => setWeekStart(addWeeks(weekStart, 1))} aria-label={t('common.next')}>→</button>
                 </div>
@@ -333,6 +374,53 @@ export default function Meals() {
                     </div>
                 </div>
             )}
+
+            {showWeekShoppingModal && (
+                <div className="modal-overlay" onClick={() => setShowWeekShoppingModal(false)}>
+                    <div className="modal" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <span className="modal-title">{t('meals.generateWeekShoppingTitle')}</span>
+                            <button className="modal-close touch-target" onClick={() => setShowWeekShoppingModal(false)} aria-label={t('common.close')}>×</button>
+                        </div>
+                        <div className="modal-body">
+                            <p style={{ marginBottom: 16 }}>{t('meals.generateWeekShoppingSummary')}</p>
+                            <div className="form-group">
+                                <label className="label" htmlFor="week-list-select">{t('meals.targetList')}</label>
+                                <select id="week-list-select" className="input" value={selectedList} onChange={e => setSelectedList(e.target.value)}>
+                                    {lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                </select>
+                            </div>
+                            <div style={{ display: 'grid', gap: 8, fontSize: 14, color: 'var(--text-secondary)' }}>
+                                <div>{t('meals.weekRecipeCount')}: <strong style={{ color: 'var(--text-primary)' }}>{weekShoppingPreview.recipeMealCount}</strong></div>
+                                <div>{t('meals.weekSkippedTextMeals')}: <strong style={{ color: 'var(--text-primary)' }}>{weekShoppingPreview.skippedTextMealsCount}</strong></div>
+                            </div>
+                        </div>
+                        <div className="modal-actions">
+                            <button className="btn btn-secondary" onClick={() => setShowWeekShoppingModal(false)}>{t('common.cancel')}</button>
+                            <button className="btn btn-primary" onClick={generateWeekShopping} disabled={!selectedList || isOffline}>
+                                {t('common.add')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <StatusModal
+                isOpen={!!weekShoppingResult}
+                title={t('meals.generateWeekShoppingTitle')}
+                message={weekShoppingResult ? t('meals.generateWeekShoppingSuccess', weekShoppingResult.addedCount) : ''}
+                details={weekShoppingResult ? `${t('meals.weekSkippedTextMeals')}: ${weekShoppingResult.skippedTextMealsCount}` : null}
+                primaryText={t('meals.openShopping')}
+                onPrimary={() => navigate('/shopping')}
+                onClose={() => setWeekShoppingResult(null)}
+            />
+
+            <StatusModal
+                isOpen={!!weekShoppingError}
+                title={t('meals.generateWeekShoppingTitle')}
+                message={weekShoppingError || ''}
+                onClose={() => setWeekShoppingError(null)}
+            />
         </div>
     );
 }

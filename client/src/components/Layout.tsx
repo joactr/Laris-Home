@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
+import { useOfflineStore } from '../store/offline';
 
 import { t } from '../i18n';
 import MobileHeader from './MobileHeader';
@@ -21,6 +22,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     const location = useLocation();
     const navigate = useNavigate();
     const { logout } = useAuthStore(); // admin is in Header
+    const isOffline = useOfflineStore((s) => s.isOffline);
+    const pendingCount = useOfflineStore((s) => s.pendingCount);
 
     const isActive = (path: string) =>
         path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
@@ -62,7 +65,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             <div className="content-wrapper">
                 <MobileHeader title={title} onMenuClick={() => setIsDrawerOpen(true)} />
-                <main className="page-container">{children}</main>
+                <main className="page-container">
+                    {(isOffline || pendingCount > 0) && (
+                        <div className="offline-banner">
+                            <span>{isOffline ? 'Sin conexión.' : 'Sincronizando cambios pendientes.'}</span>
+                            {pendingCount > 0 && <span>{pendingCount} cambio{pendingCount === 1 ? '' : 's'} pendiente{pendingCount === 1 ? '' : 's'}</span>}
+                        </div>
+                    )}
+                    {children}
+                </main>
             </div>
             <VoiceAssistantUI />
         </div>

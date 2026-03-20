@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { clearOfflineScopeData, getScopeFromUser } from '../services/offline.service';
 
 interface User {
     id: string;
@@ -19,11 +20,17 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>()(
     persist(
-        (set) => ({
+        (set, get) => ({
             token: null,
             user: null,
             setAuth: (token, user) => set({ token, user }),
-            logout: () => set({ token: null, user: null }),
+            logout: () => {
+                const currentUser = get().user;
+                if (currentUser) {
+                    void clearOfflineScopeData(getScopeFromUser(currentUser));
+                }
+                set({ token: null, user: null });
+            },
         }),
         { name: 'laris-home-auth' }
     )

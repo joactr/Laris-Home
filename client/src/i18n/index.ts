@@ -26,6 +26,11 @@ export const translations: Record<string, Record<string, string>> = {
     'common.back': 'Volver',
     'common.next': 'Siguiente',
     'common.prev': 'Anterior',
+    'common.retry': 'Reintentar',
+    'common.review': 'Revisar',
+    'common.mark': 'Marcar',
+    'common.unmark': 'Desmarcar',
+    'common.readd': 'Volver a añadir',
 
     // Accessibility
     'voice.accessibility.toggle': 'Alternar asistente de voz',
@@ -95,6 +100,11 @@ export const translations: Record<string, Record<string, string>> = {
     'shopping.deleteListConfirm': '¿Eliminar esta lista y todos sus ítems?',
     'shopping.deleteListOnly': 'No puedes eliminar la única lista que tienes.',
     'shopping.createListFirst': 'Crea una lista de compras primero',
+    'shopping.offlinePending': 'Pendiente de sincronizar',
+    'shopping.offlineError': 'Error al sincronizar',
+    'shopping.voiceFallbackTitle': 'Asistente de compras',
+    'shopping.voiceReviewTitle': 'Revisar artículos detectados',
+    'shopping.voiceManualHint': 'Puedes reintentarlo o usar el formulario manual.',
 
     // Calendar
     'calendar.newEvent': '+ Evento',
@@ -193,6 +203,9 @@ export const translations: Record<string, Record<string, string>> = {
     'recipes.saveNewAiSuccess': 'Receta guardada con detalles generados por IA.',
     'recipes.savingAi': 'Guardando con IA...',
     'recipes.deleteConfirm': '¿Eliminar esta receta?',
+    'recipes.voiceFallbackTitle': 'Asistente de recetas',
+    'recipes.voiceReviewTitle': 'Revisar sugerencias',
+    'recipes.voiceRecipeChangeTitle': 'Cambios propuestos',
 
     // Voice
     'voice.listening': 'Escuchando...',
@@ -204,12 +217,21 @@ export const translations: Record<string, Record<string, string>> = {
     'voice.placeholder.generic': 'Háblame, te escucho...',
     'voice.error.noItems': 'No se detectaron items.',
     'voice.error.noRecipes': 'No se detectaron recetas.',
+    'voice.transcriptLabel': 'Transcripción',
 
     // Meals
     'meals.breakfast': 'Desayuno',
     'meals.lunch': 'Almuerzo',
     'meals.dinner': 'Cena',
-    'meals.snack': 'Merienda'
+    'meals.snack': 'Merienda',
+    'meals.generateWeekShopping': 'Generar compra semanal',
+    'meals.generateWeekShoppingTitle': 'Generar compra desde la semana',
+    'meals.generateWeekShoppingSummary': 'Se añadirán ingredientes de las comidas con receta al carrito seleccionado.',
+    'meals.targetList': 'Lista destino',
+    'meals.weekRecipeCount': 'Comidas con receta',
+    'meals.weekSkippedTextMeals': 'Comidas de texto omitidas',
+    'meals.generateWeekShoppingSuccess': 'He añadido {{0}} artículos a la lista.',
+    'meals.openShopping': 'Abrir lista de compra'
   }
 };
 

@@ -4,6 +4,8 @@ import { useAuthStore } from '../../store/auth';
 import { t } from '../../i18n';
 import { useVoiceStore } from '../../store/voice';
 import ConfirmModal from '../../components/ConfirmModal';
+import StatusModal from '../../components/StatusModal';
+import { useOfflineStore } from '../../store/offline';
 
 type Filter = 'all' | 'active' | 'completed';
 
@@ -22,6 +24,10 @@ export default function Shopping() {
     const [pendingItems, setPendingItems] = useState<any[] | null>(null);
     const [voiceMessage, setVoiceMessage] = useState<string>('');
     const [confirmDeleteList, setConfirmDeleteList] = useState<string | null>(null);
+    const [voiceTranscript, setVoiceTranscript] = useState('');
+    const [voiceFallback, setVoiceFallback] = useState<{ message: string; transcript: string } | null>(null);
+    const isOffline = useOfflineStore((s) => s.isOffline);
+    const pendingCount = useOfflineStore((s) => s.pendingCount);
 
     const loadLists = useCallback(async () => {
         const l = await api.shopping.getLists();
@@ -89,14 +95,22 @@ export default function Shopping() {
     const handleVoiceResult = useCallback(async (finalText: string) => {
         try {
             const res = await api.voice.processShopping(finalText);
-            if (res.items && res.items.length) {
+            setVoiceTranscript(res.transcript || finalText);
+            if (res.status === 'needs_review' && res.items && res.items.length) {
                 setPendingItems(res.items);
                 setVoiceMessage(res.message || t('shopping.detectedItems'));
+                setVoiceFallback(null);
             } else {
-                alert(t('voice.error.noItems'));
+                setVoiceFallback({
+                    message: res.message || t('shopping.voiceManualHint'),
+                    transcript: res.transcript || finalText,
+                });
             }
         } catch (err: any) {
-            alert(err.message || t('common.error'));
+            setVoiceFallback({
+                message: err.message || t('common.error'),
+                transcript: finalText,
+            });
         }
     }, [activeListId]);
 
@@ -128,6 +142,12 @@ export default function Shopping() {
                     {t('shopping.newList')}
                 </button>
             </div>
+
+            {(isOffline || pendingCount > 0) && (
+                <div className="card" style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                    {isOffline ? 'Sin conexión. Los cambios en compras se guardarán y se sincronizarán después.' : 'Reconectado. Sincronizando cambios pendientes de compras.'}
+                </div>
+            )}
 
             {/* New list dialog */}
             {showNewList && (
@@ -161,6 +181,11 @@ export default function Shopping() {
                         </div>
                         <div style={{ padding: '0 0 16px' }}>
                             <p style={{ marginBottom: 16 }}>{voiceMessage}</p>
+                            {voiceTranscript && (
+                                <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: 10, marginBottom: 16, color: 'var(--text-secondary)', fontSize: 13 }}>
+                                    <strong>{t('voice.transcriptLabel')}:</strong> {voiceTranscript}
+                                </div>
+                            )}
                             <ul style={{ background: 'var(--bg-tertiary)', padding: "12px 24px", borderRadius: 8, marginBottom: 16, listStyle: 'none' }}>
                                 {pendingItems.map((pi, idx) => (
                                     <li key={idx} style={{ marginBottom: 4 }}>
@@ -280,6 +305,8 @@ export default function Shopping() {
                             <div className="item-meta">
                                 {item.quantity && `${item.quantity}${item.unit ? ' ' + item.unit : ''} · `}
                                 {item.category && `${item.category} · `}
+                                {item.pending_sync && `${t('shopping.offlinePending')} · `}
+                                {item.sync_error && `${t('shopping.offlineError')} · `}
                                 {item.added_by_name && (
                                     <>{t('shopping.addedBy')} <span className="avatar" style={{ background: item.added_by_color }}>{item.added_by_name[0]}</span></>
                                 )}
@@ -292,6 +319,18 @@ export default function Shopping() {
                     </div>
                 ))}
             </div>
+
+            <StatusModal
+                isOpen={!!voiceFallback}
+                title={t('shopping.voiceFallbackTitle')}
+                message={voiceFallback?.message || ''}
+                details={voiceFallback?.transcript ? `${t('voice.transcriptLabel')}: ${voiceFallback.transcript}` : null}
+                primaryText={t('common.retry')}
+                secondaryText={t('common.close')}
+                onPrimary={voiceFallback?.transcript ? () => handleVoiceResult(voiceFallback.transcript) : undefined}
+                onSecondary={() => setVoiceFallback(null)}
+                onClose={() => setVoiceFallback(null)}
+            />
         </div>
     );
 }

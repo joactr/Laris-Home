@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from './store/auth';
+import { initializeClientDataLayer, refreshOfflineDataState } from './api/client';
 import { requestNotificationPermission, subscribeUserToPush } from './services/push.service';
 import Layout from './components/Layout';
 import AuthPage from './pages/Auth/AuthPage';
@@ -22,6 +23,9 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 async function validateToken(token: string): Promise<boolean> {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return true;
+    }
     try {
         const res = await fetch('/api/auth/me', {
             headers: { Authorization: `Bearer ${token}` },
@@ -39,6 +43,10 @@ function AppContent() {
     const navigate = useNavigate();
 
     useEffect(() => {
+        initializeClientDataLayer();
+    }, []);
+
+    useEffect(() => {
         const initAuth = async () => {
             if (token) {
                 const isValid = await validateToken(token);
@@ -51,6 +59,12 @@ function AppContent() {
         };
         initAuth();
     }, [token, logout, navigate]);
+
+    useEffect(() => {
+        if (token) {
+            void refreshOfflineDataState();
+        }
+    }, [token]);
 
     useEffect(() => {
         const initPush = async () => {

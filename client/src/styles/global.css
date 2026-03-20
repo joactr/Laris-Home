@@ -156,6 +156,17 @@ a {
   min-width: 0;
 }
 
+.offline-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(245, 158, 11, 0.18);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fde68a;
+  font-size: 13px;
+}
+
 /* ===== Sidebar nav (Drawer on mobile, Left Sidebar on Desktop) ===== */
 .sidebar-nav {
   position: fixed;
