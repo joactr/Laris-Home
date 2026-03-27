@@ -75,6 +75,8 @@ Laris Home is built with a focus on **Type Safety**, **Scalability**, and **Deve
    docker compose up --build
    ```
 
+   This also starts an automatic Postgres backup sidecar that writes dumps to `./backups/postgres`.
+
 4. Initialize the data:
    ```bash
    docker compose exec server npm run migrate
@@ -82,6 +84,21 @@ Laris Home is built with a focus on **Type Safety**, **Scalability**, and **Deve
    ```
 
 Access the app at **http://localhost:5173**.
+
+### Automatic Database Backups
+
+- A `db-backup` service creates a compressed Postgres dump on startup and then every 24 hours by default.
+- Backup files are written to `./backups/postgres`.
+- Old backups are pruned after `DB_BACKUP_RETENTION_DAYS` days.
+- You can tune the schedule with:
+  ```bash
+  DB_BACKUP_INTERVAL_SECONDS=86400
+  DB_BACKUP_RETENTION_DAYS=7
+  ```
+- You can trigger an extra manual backup at any time with:
+  ```bash
+  docker compose exec db-backup sh /usr/local/bin/backup.sh once
+  ```
 
 ---
 

@@ -92,6 +92,28 @@ export default function RecipeImportPage() {
                         />
                     </div>
 
+                    <div className="form-group">
+                        <label className="label">URL de la Imagen (opcional)</label>
+                        <input
+                            className="input"
+                            type="url"
+                            placeholder="https://..."
+                            value={recipe.imageUrl || ''}
+                            onChange={e => setRecipe({ ...recipe, imageUrl: e.target.value })}
+                        />
+                        {recipe.imageUrl && (
+                            <div style={{ marginTop: 8 }}>
+                                <img
+                                    src={recipe.imageUrl}
+                                    alt="Vista previa"
+                                    style={{ maxHeight: '150px', borderRadius: '8px', objectFit: 'cover' }}
+                                    onError={(e) => (e.currentTarget.style.display = 'none')}
+                                    onLoad={(e) => (e.currentTarget.style.display = 'block')}
+                                />
+                            </div>
+                        )}
+                    </div>
+
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
                         <div className="form-group">
                             <label className="label">{t('recipes.servings')}</label>

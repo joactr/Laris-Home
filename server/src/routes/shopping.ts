@@ -14,6 +14,25 @@ const ItemSchema = z.object({
     notes: z.string().optional(),
 });
 
+async function ensureHouseholdListAccess(listId: string, householdId: string) {
+    const { rows } = await pool.query(
+        'SELECT id FROM shopping_lists WHERE id = $1 AND household_id = $2',
+        [listId, householdId]
+    );
+    return rows.length > 0;
+}
+
+async function getHouseholdOwnedItem(itemId: string, householdId: string) {
+    const { rows } = await pool.query(
+        `SELECT li.*
+         FROM list_items li
+         JOIN shopping_lists sl ON sl.id = li.list_id
+         WHERE li.id = $1 AND sl.household_id = $2`,
+        [itemId, householdId]
+    );
+    return rows[0] ?? null;
+}
+
 // Get all lists for the household
 router.get('/lists', async (req: AuthRequest, res: Response) => {
     const { rows } = await pool.query(
@@ -36,12 +55,21 @@ router.post('/lists', async (req: AuthRequest, res: Response) => {
 
 // Delete a list
 router.delete('/lists/:id', async (req: AuthRequest, res: Response) => {
-    await pool.query('DELETE FROM shopping_lists WHERE id=$1 AND household_id=$2', [req.params.id, req.user!.householdId]);
+    const { rowCount } = await pool.query('DELETE FROM shopping_lists WHERE id=$1 AND household_id=$2', [req.params.id, req.user!.householdId]);
+    if (rowCount === 0) {
+        res.status(404).json({ error: 'List not found' });
+        return;
+    }
     res.json({ ok: true });
 });
 
 // Get items in a list
 router.get('/lists/:id/items', async (req: AuthRequest, res: Response) => {
+    const hasAccess = await ensureHouseholdListAccess(req.params.id, req.user!.householdId!);
+    if (!hasAccess) {
+        res.status(404).json({ error: 'List not found' });
+        return;
+    }
     const { rows } = await pool.query(
         `SELECT li.*, u.name AS added_by_name, u.color AS added_by_color
      FROM list_items li
@@ -57,6 +85,11 @@ router.get('/lists/:id/items', async (req: AuthRequest, res: Response) => {
 router.post('/lists/:id/items', async (req: AuthRequest, res: Response) => {
     const parsed = ItemSchema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    const hasAccess = await ensureHouseholdListAccess(req.params.id, req.user!.householdId!);
+    if (!hasAccess) {
+        res.status(404).json({ error: 'List not found' });
+        return;
+    }
     const { name, quantity, unit, category, notes } = parsed.data;
     const { rows } = await pool.query(
         `INSERT INTO list_items (list_id, name, quantity, unit, category, added_by_user_id, notes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
@@ -67,6 +100,11 @@ router.post('/lists/:id/items', async (req: AuthRequest, res: Response) => {
 
 // Update an item
 router.patch('/items/:id', async (req: AuthRequest, res: Response) => {
+    const existingItem = await getHouseholdOwnedItem(req.params.id, req.user!.householdId!);
+    if (!existingItem) {
+        res.status(404).json({ error: 'Item not found' });
+        return;
+    }
     const { name, quantity, unit, category, notes } = req.body;
     const { rows } = await pool.query(
         `UPDATE list_items SET name=COALESCE($1,name), quantity=COALESCE($2,quantity), unit=COALESCE($3,unit),
@@ -78,6 +116,11 @@ router.patch('/items/:id', async (req: AuthRequest, res: Response) => {
 
 // Toggle item complete
 router.patch('/items/:id/complete', async (req: AuthRequest, res: Response) => {
+    const existingItem = await getHouseholdOwnedItem(req.params.id, req.user!.householdId!);
+    if (!existingItem) {
+        res.status(404).json({ error: 'Item not found' });
+        return;
+    }
     const { rows } = await pool.query(
         `UPDATE list_items SET is_completed = NOT is_completed,
      completed_at = CASE WHEN is_completed THEN NULL ELSE NOW() END
@@ -89,12 +132,22 @@ router.patch('/items/:id/complete', async (req: AuthRequest, res: Response) => {
 
 // Delete an item
 router.delete('/items/:id', async (req: AuthRequest, res: Response) => {
+    const existingItem = await getHouseholdOwnedItem(req.params.id, req.user!.householdId!);
+    if (!existingItem) {
+        res.status(404).json({ error: 'Item not found' });
+        return;
+    }
     await pool.query('DELETE FROM list_items WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
 });
 
 // Re-add completed item (reset completion)
 router.post('/items/:id/readd', async (req: AuthRequest, res: Response) => {
+    const existingItem = await getHouseholdOwnedItem(req.params.id, req.user!.householdId!);
+    if (!existingItem) {
+        res.status(404).json({ error: 'Item not found' });
+        return;
+    }
     const { rows } = await pool.query(
         'UPDATE list_items SET is_completed=false, completed_at=null WHERE id=$1 RETURNING *',
         [req.params.id]

@@ -236,7 +236,10 @@ export class RecipeService {
     }
   }
 
-  static async createEnrichedRecipe(householdId: string, basicData: { title: string; ingredients: string[]; instructions: string }): Promise<any> {
+  static async createEnrichedRecipe(
+    householdId: string,
+    basicData: { title: string; ingredients: string[]; instructions: string; imageUrl?: string | null }
+  ): Promise<any> {
     const enriched = await OpenRouterService.enrichRecipe(basicData.title, basicData.ingredients, basicData.instructions);
     
     try {
@@ -250,6 +253,9 @@ export class RecipeService {
       console.error('Failed to calculate macros:', e);
     }
 
-    return await this.saveRecipe(householdId, enriched);
+    return await this.saveRecipe(householdId, {
+      ...enriched,
+      imageUrl: basicData.imageUrl ?? null,
+    });
   }
 }

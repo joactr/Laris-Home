@@ -19,6 +19,14 @@ const TemplateSchema = z.object({
     points: z.number().int().min(0).default(1),
 });
 
+async function isHouseholdMember(userId: string, householdId: string) {
+    const { rows } = await pool.query(
+        'SELECT 1 FROM memberships WHERE user_id = $1 AND household_id = $2',
+        [userId, householdId]
+    );
+    return rows.length > 0;
+}
+
 // Generate chore instances for a template in next N days
 async function generateInstances(templateId: string, days = 30) {
     const { rows: [t] } = await pool.query('SELECT * FROM chore_templates WHERE id=$1', [templateId]);
@@ -88,6 +96,13 @@ router.post('/templates', async (req: AuthRequest, res: Response) => {
     const parsed = TemplateSchema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
     const d = parsed.data;
+    if (d.default_assignee_user_id) {
+        const isMember = await isHouseholdMember(d.default_assignee_user_id, req.user!.householdId!);
+        if (!isMember) {
+            res.status(400).json({ error: 'Assignee must belong to the household' });
+            return;
+        }
+    }
     const { rows } = await pool.query(
         `INSERT INTO chore_templates (household_id, title, description, location, default_assignee_user_id, recurrence_type, recurrence_days, points, recurrence_interval, start_date)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
@@ -113,6 +128,13 @@ router.put('/templates/:id', async (req: AuthRequest, res: Response) => {
     const parsed = TemplateSchema.partial().safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
     const d = parsed.data;
+    if (d.default_assignee_user_id) {
+        const isMember = await isHouseholdMember(d.default_assignee_user_id, req.user!.householdId!);
+        if (!isMember) {
+            res.status(400).json({ error: 'Assignee must belong to the household' });
+            return;
+        }
+    }
     const { rows } = await pool.query(
         `UPDATE chore_templates SET
        title=COALESCE($1,title), description=COALESCE($2,description), location=COALESCE($3,location),
@@ -126,6 +148,10 @@ router.put('/templates/:id', async (req: AuthRequest, res: Response) => {
         d.recurrence_type, d.recurrence_days, d.points, d.recurrence_interval, d.start_date, req.params.id, req.user!.householdId]
     );
     const template = rows[0];
+    if (!template) {
+        res.status(404).json({ error: 'Template not found' });
+        return;
+    }
     res.json(template);
 
     // Send push notification if assignment changed
@@ -206,9 +232,17 @@ router.patch('/instances/:id/status', async (req: AuthRequest, res: Response) =>
     }
     const completedAt = status === 'done' ? new Date().toISOString() : null;
     const { rows } = await pool.query(
-        `UPDATE chore_instances SET status=$1, completed_at=$2 WHERE id=$3 RETURNING *`,
-        [status, completedAt, req.params.id]
+        `UPDATE chore_instances ci
+         SET status=$1, completed_at=$2
+         FROM chore_templates ct
+         WHERE ci.id=$3 AND ci.template_id = ct.id AND ct.household_id = $4
+         RETURNING ci.*`,
+        [status, completedAt, req.params.id, req.user!.householdId]
     );
+    if (rows.length === 0) {
+        res.status(404).json({ error: 'Instance not found' });
+        return;
+    }
     res.json(rows[0]);
 });
 

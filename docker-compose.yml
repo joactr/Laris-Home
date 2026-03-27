@@ -11,6 +11,25 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  db-backup:
+    image: postgres:16
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      PGPASSWORD: ${DB_BACKUP_PASSWORD:-larishome}
+      PGHOST: db
+      PGPORT: 5432
+      PGDATABASE: ${DB_BACKUP_DATABASE:-larishome}
+      PGUSER: ${DB_BACKUP_USER:-larishome}
+      BACKUP_INTERVAL_SECONDS: ${DB_BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_RETENTION_DAYS: ${DB_BACKUP_RETENTION_DAYS:-7}
+      BACKUP_DIR: /backups
+    volumes:
+      - ./ops/db-backup/backup.sh:/usr/local/bin/backup.sh:ro
+      - ./backups/postgres:/backups
+    command: ["sh", "/usr/local/bin/backup.sh"]
+
   server:
     build: ./server
     restart: unless-stopped

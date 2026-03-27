@@ -58,7 +58,8 @@ router.post('/import-from-url', async (req: AuthRequest, res: Response) => {
 const CreateEnrichedSchema = z.object({
   title: z.string(),
   ingredients: z.array(z.string()),
-  instructions: z.string()
+  instructions: z.string(),
+  imageUrl: z.union([z.string().url(), z.literal(""), z.null()]).optional(),
 });
 
 // Create enriched recipe

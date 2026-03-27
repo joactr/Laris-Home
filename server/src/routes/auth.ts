@@ -98,6 +98,30 @@ router.post('/login', async (req: Request, res: Response) => {
     res.json({ token, user: { id: user.id, name: user.name, username: user.username, is_admin: user.is_admin, color: user.color, householdId } });
 });
 
+router.post('/register-first-admin', async (req: Request, res: Response) => {
+    const { rows: existingUsers } = await pool.query('SELECT 1 FROM users LIMIT 1');
+    if (existingUsers.length > 0) {
+        res.status(403).json({ error: 'Initial admin bootstrap is no longer available' });
+        return;
+    }
+
+    const parsed = RegisterSchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    const { name, username, password } = parsed.data;
+    const hash = await bcrypt.hash(password, 10);
+
+    try {
+        const result = await pool.query(
+            'INSERT INTO users (name, username, password_hash, is_admin) VALUES ($1,$2,$3,$4) RETURNING id, name, username, is_admin, color',
+            [name, username, hash, true]
+        );
+        res.status(201).json({ user: result.rows[0] });
+    } catch (err: any) {
+        if (err.code === '23505') { res.status(409).json({ error: 'Username already registered' }); return; }
+        throw err;
+    }
+});
+
 router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
     const { rows } = await pool.query('SELECT id, name, username, is_admin, color FROM users WHERE id=$1', [req.user!.id]);
     if (!rows.length) { res.status(404).json({ error: 'User not found' }); return; }

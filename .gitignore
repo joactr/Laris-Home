@@ -53,3 +53,5 @@ yarn-error.log*
 # Database
 *.sqlite
 *.db
+backups/postgres/
+!backups/postgres/.gitkeep
