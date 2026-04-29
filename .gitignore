@@ -56,3 +56,6 @@ yarn-error.log*
 *.db
 backups/postgres/
 !backups/postgres/.gitkeep
+
+# Local Codex workspace state
+.codex
