@@ -1,14 +1,21 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import app from '../src/index';
 import pool from '../src/db/pool';
+import { resetRateLimitBuckets } from '../src/lib/rate-limit';
+import { RecipeService } from '../src/services/recipe.service';
+import { OpenRouterService } from '../src/services/openrouter.service';
 
 let adminUserId: string;
 let memberUserId: string;
 let householdId: string;
 let shoppingListId: string;
 let recipeId: string;
+let outsiderUserId: string;
+let outsiderHouseholdId: string;
+let outsiderProjectId: string;
+let outsiderTaskId: string;
 
 async function resetTestData() {
     const passwordHash = await bcrypt.hash('password123', 10);
@@ -38,10 +45,24 @@ async function resetTestData() {
     );
     householdId = householdRes.rows[0].id;
 
+    const outsiderHouseholdRes = await pool.query(
+        `INSERT INTO households (name) VALUES ($1) RETURNING id`,
+        ['Other Home']
+    );
+    outsiderHouseholdId = outsiderHouseholdRes.rows[0].id;
+
+    const outsiderRes = await pool.query(
+        `INSERT INTO users (name, username, password_hash, is_admin, color)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id`,
+        ['Outsider', 'Outsider', passwordHash, false, '#14b8a6']
+    );
+    outsiderUserId = outsiderRes.rows[0].id;
+
     await pool.query(
         `INSERT INTO memberships (user_id, household_id, role)
-         VALUES ($1, $2, 'admin'), ($3, $2, 'member')`,
-        [adminUserId, householdId, memberUserId]
+         VALUES ($1, $2, 'admin'), ($3, $2, 'member'), ($4, $5, 'member')`,
+        [adminUserId, householdId, memberUserId, outsiderUserId, outsiderHouseholdId]
     );
 
     const listRes = await pool.query(
@@ -67,7 +88,29 @@ async function resetTestData() {
          ($1, 'tomate', '2 tomates', 2, 'unidad', 'maduros')`,
         [recipeId]
     );
+
+    const outsiderProjectRes = await pool.query(
+        `INSERT INTO projects (household_id, name, description, status)
+         VALUES ($1, 'Other Project', 'private', 'active')
+         RETURNING id`,
+        [outsiderHouseholdId]
+    );
+    outsiderProjectId = outsiderProjectRes.rows[0].id;
+
+    const outsiderTaskRes = await pool.query(
+        `INSERT INTO tasks (project_id, title, status, priority, created_by_user_id)
+         VALUES ($1, 'Private task', 'todo', 'medium', $2)
+         RETURNING id`,
+        [outsiderProjectId, outsiderUserId]
+    );
+    outsiderTaskId = outsiderTaskRes.rows[0].id;
 }
+
+beforeEach(() => {
+    vi.unstubAllGlobals();
+    resetRateLimitBuckets();
+    vi.restoreAllMocks();
+});
 
 describe('Auth endpoints', () => {
     let token: string;
@@ -110,6 +153,7 @@ describe('Auth endpoints', () => {
             username: 'JM', password: 'wrongpassword',
         });
         expect(res.status).toBe(401);
+        expect(res.body.error.code).toBe('UNAUTHORIZED');
     });
 
     it('POST /api/auth/register - rejects non-admin user creation', async () => {
@@ -120,6 +164,68 @@ describe('Auth endpoints', () => {
             name: 'Blocked User', username: `blocked_${Date.now()}`, password: 'password123',
         }).set('Authorization', `Bearer ${memberLogin.body.token}`);
         expect(res.status).toBe(403);
+        expect(res.body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('GET /api/auth/me - rejects missing token with structured error', async () => {
+        const res = await request(app).get('/api/auth/me');
+        expect(res.status).toBe(401);
+        expect(res.body.error.code).toBe('UNAUTHORIZED');
+    });
+});
+
+describe('Project task authorization', () => {
+    let token: string;
+
+    beforeAll(async () => {
+        const res = await request(app).post('/api/auth/login').send({ username: 'JM', password: 'password123' });
+        token = res.body.token;
+    });
+
+    it('POST /api/projects/:projectId/tasks blocks creating tasks in another household project', async () => {
+        const res = await request(app)
+            .post(`/api/projects/${outsiderProjectId}/tasks`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ title: 'Should fail' });
+
+        expect(res.status).toBe(404);
+        expect(res.body.error.code).toBe('NOT_FOUND');
+    });
+
+    it('PATCH /api/projects/tasks/:id blocks editing tasks in another household', async () => {
+        const res = await request(app)
+            .patch(`/api/projects/tasks/${outsiderTaskId}`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ status: 'done' });
+
+        expect(res.status).toBe(404);
+        expect(res.body.error.code).toBe('NOT_FOUND');
+    });
+
+    it('DELETE /api/projects/tasks/:id blocks deleting tasks in another household', async () => {
+        const res = await request(app)
+            .delete(`/api/projects/tasks/${outsiderTaskId}`)
+            .set('Authorization', `Bearer ${token}`);
+
+        expect(res.status).toBe(404);
+        expect(res.body.error.code).toBe('NOT_FOUND');
+    });
+
+    it('POST /api/projects/:projectId/tasks blocks assigning tasks to users outside the household', async () => {
+        const projectRes = await pool.query(
+            `INSERT INTO projects (household_id, name, description, status)
+             VALUES ($1, 'Shared Project', 'desc', 'active')
+             RETURNING id`,
+            [householdId]
+        );
+
+        const res = await request(app)
+            .post(`/api/projects/${projectRes.rows[0].id}/tasks`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ title: 'Should fail', assigned_user_id: outsiderUserId });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('BAD_REQUEST');
     });
 });
 
@@ -249,6 +355,114 @@ describe('Chore endpoints', () => {
         expect(res.status).toBe(200);
         expect(res.body.status).toBe('done');
         expect(res.body.completed_at).not.toBeNull();
+    });
+});
+
+describe('Rate limiting and recipe import', () => {
+    let token: string;
+
+    beforeAll(async () => {
+        const res = await request(app).post('/api/auth/login').send({ username: 'JM', password: 'password123' });
+        token = res.body.token;
+    });
+
+    it('POST /api/voice/shopping is rate limited', async () => {
+        vi.spyOn(OpenRouterService, 'parseVoiceShopping').mockResolvedValue({
+            items: [{ name: 'leche', quantity: 1 }],
+            message: 'ok',
+        });
+
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+            const response = await request(app)
+                .post('/api/voice/shopping')
+                .set('Authorization', `Bearer ${token}`)
+                .send({ transcript: `add milk ${attempt}` });
+            expect(response.status).toBe(200);
+        }
+
+        const limited = await request(app)
+            .post('/api/voice/shopping')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ transcript: 'one more' });
+
+        expect(limited.status).toBe(429);
+        expect(limited.body.error.code).toBe('RATE_LIMITED');
+    });
+
+    it('POST /api/recipes/import-from-url is rate limited', async () => {
+        vi.spyOn(RecipeService, 'fetchAndParse').mockResolvedValue({
+            title: 'Mock recipe',
+            description: 'desc',
+            servings: 2,
+            prepTimeMinutes: 10,
+            cookTimeMinutes: 20,
+            ingredients: [{ name: 'tomate', originalText: '2 tomates' }],
+            instructions: ['mezclar'],
+            imageUrl: null,
+        });
+
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+            const response = await request(app)
+                .post('/api/recipes/import-from-url')
+                .set('Authorization', `Bearer ${token}`)
+                .send({ url: `https://example.com/recipe-${attempt}` });
+            expect(response.status).toBe(200);
+        }
+
+        const limited = await request(app)
+            .post('/api/recipes/import-from-url')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ url: 'https://example.com/recipe-over-limit' });
+
+        expect(limited.status).toBe(429);
+        expect(limited.body.error.code).toBe('RATE_LIMITED');
+    });
+
+    it('RecipeService.fetchAndParse prioritizes JSON-LD recipe data', async () => {
+        const html = `
+          <html>
+            <head>
+              <script type="application/ld+json">
+                {
+                  "@context": "https://schema.org",
+                  "@type": "Recipe",
+                  "name": "Tortilla",
+                  "description": "Clasica",
+                  "recipeYield": "4 servings",
+                  "prepTime": "PT10M",
+                  "cookTime": "PT15M",
+                  "image": "/images/tortilla.jpg",
+                  "recipeIngredient": ["4 huevos", "2 patatas"],
+                  "recipeInstructions": [
+                    { "@type": "HowToStep", "text": "Batir los huevos" },
+                    { "@type": "HowToStep", "text": "Freir las patatas" }
+                  ]
+                }
+              </script>
+            </head>
+            <body>ignored content</body>
+          </html>
+        `;
+
+        vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+            if (url === 'https://example.com/tortilla') {
+                return {
+                    ok: true,
+                    url,
+                    text: async () => html,
+                };
+            }
+
+            throw new Error('macro provider unavailable');
+        }));
+
+        const recipe = await RecipeService.fetchAndParse('https://example.com/tortilla');
+
+        expect(recipe.title).toBe('Tortilla');
+        expect(recipe.servings).toBe(4);
+        expect(recipe.instructions).toEqual(['Batir los huevos', 'Freir las patatas']);
+        expect(recipe.imageUrl).toBe('https://example.com/images/tortilla.jpg');
+        expect(recipe.ingredients[0].originalText).toBe('4 huevos');
     });
 });
 

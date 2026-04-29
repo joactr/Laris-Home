@@ -10,10 +10,11 @@ import dashboardRouter from './routes/dashboard';
 import recipesRouter from './routes/recipes';
 import pushRouter from './routes/push';
 import voiceRouter from './routes/voice';
+import { ApiError, sendError } from './lib/api-error';
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 // Health check
 app.get('/api/health', (_req, res) => { res.json({ ok: true }); });
@@ -31,8 +32,12 @@ app.use('/api/push', pushRouter);
 app.use('/api/voice', voiceRouter);
 // Error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (err instanceof ApiError) {
+        sendError(res, err.status, err.code, err.message, err.details);
+        return;
+    }
     console.error(err);
-    res.status(500).json({ error: err.message || 'Internal server error' });
+    sendError(res, 500, 'INTERNAL_ERROR', err?.message || 'Internal server error');
 });
 
 const PORT = process.env.PORT || 4000;

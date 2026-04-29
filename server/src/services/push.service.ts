@@ -37,17 +37,9 @@ function getWebPush(): WebPushModule | null {
   return webpushModule;
 }
 
-// Generate VAPID keys if not present in environment
-// In a real app, these should be in .env
 const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || '';
 const contactEmail = process.env.VAPID_EMAIL || 'mailto:admin@example.com';
-
-console.log('[Push] Initializing service with VAPID keys:', {
-  publicKey: vapidPublicKey ? 'PRESENT' : 'MISSING',
-  privateKey: vapidPrivateKey ? 'PRESENT' : 'MISSING',
-  email: contactEmail
-});
 
 const webpush = getWebPush();
 
@@ -58,20 +50,17 @@ if (webpush && vapidPublicKey && vapidPrivateKey) {
     vapidPrivateKey
   );
 } else {
-  console.warn('[Push] VAPID keys missing! Service is not fully initialized');
+  console.warn('[Push] Push delivery disabled: missing VAPID configuration');
 }
 
 export async function sendPushNotification(userId: string, payload: PushPayload) {
-  console.log(`[Push] Attempting to send notification to user ${userId}:`, payload.title);
   const push = getWebPush();
 
   if (!push) {
-    console.warn('[Push] web-push unavailable, skipping notification');
     return;
   }
 
   if (!vapidPublicKey || !vapidPrivateKey) {
-    console.error('[Push] VAPID keys missing, cannot send notification');
     return;
   }
 
@@ -81,27 +70,23 @@ export async function sendPushNotification(userId: string, payload: PushPayload)
       [userId]
     );
 
-    console.log(`[Push] Found ${subscriptions.length} subscriptions for user ${userId}`);
-
     const notifications = subscriptions.map((row: { subscription: PushSubscription }) => {
       const subscription = row.subscription;
       return push.sendNotification(subscription, JSON.stringify(payload))
-        .then(() => console.log(`[Push] Successfully sent to a subscription for ${userId}`))
         .catch((err: { statusCode?: number }) => {
           if (err.statusCode === 404 || err.statusCode === 410) {
-            // Subscription has expired or is no longer valid
             return pool.query(
               'DELETE FROM push_subscriptions WHERE subscription = $1',
               [JSON.stringify(subscription)]
             );
           }
-          console.error('Error sending push notification:', err);
+          console.error('Push delivery failed', err);
         });
     });
 
     await Promise.all(notifications);
   } catch (error) {
-    console.error('Failed to send push notifications:', error);
+    console.error('Push delivery failed', error);
   }
 }
 

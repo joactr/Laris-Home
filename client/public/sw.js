@@ -1,118 +1,117 @@
-const CACHE_NAME = 'laris-home-v9';
-const urlsToCache = [
-  '/',
-  '/index.html',
-];
+const STATIC_CACHE = 'laris-home-static-v12';
+const RUNTIME_CACHE = 'laris-home-runtime-v12';
+const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest'];
 
-// Install: Cache initial assets
+function isNavigationRequest(request) {
+  return request.mode === 'navigate';
+}
+
+function isCacheableAsset(request) {
+  const url = new URL(request.url);
+  if (request.method !== 'GET') return false;
+  if (url.pathname.startsWith('/api/')) return false;
+  if (url.protocol.startsWith('chrome-extension')) return false;
+  if (url.search.includes('token=')) return false;
+  if (url.pathname.startsWith('/@vite/') || url.pathname.includes('react-refresh')) return false;
+  return url.origin === self.location.origin;
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache))
+    caches.open(STATIC_CACHE).then((cache) => cache.addAll(APP_SHELL))
   );
-  self.skipWaiting();
 });
 
-// Activate: Clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      );
-    })
+    caches.keys().then((keys) => Promise.all(
+      keys
+        .filter((key) => key !== STATIC_CACHE && key !== RUNTIME_CACHE)
+        .map((key) => caches.delete(key))
+    ))
   );
   self.clients.claim();
 });
 
-// Fetch: Strategy - Network First, Falling back to Cache
 self.addEventListener('fetch', (event) => {
-  // Never cache API calls, POST requests, or chrome-extension requests
-  if (
-    event.request.url.includes('/api/') || 
-    event.request.method !== 'GET' ||
-    event.request.url.startsWith('chrome-extension://') ||
-    event.request.url.includes('localhost:5173') ||
-    event.request.url.includes('?token=') || // Vite HMR ping
-    event.request.url.includes('/@vite/') || // Vite client
-    event.request.url.includes('/@react-refresh')
-  ) {
+  const { request } = event;
+
+  if (!isCacheableAsset(request)) {
+    return;
+  }
+
+  if (isNavigationRequest(request)) {
+    event.respondWith(
+      fetch(request)
+        .then(async (response) => {
+          const cache = await caches.open(STATIC_CACHE);
+          cache.put('/index.html', response.clone());
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match('/index.html');
+          return cached || Response.error();
+        })
+    );
     return;
   }
 
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        // Only cache valid GET responses to our own origin
-        if (
-          !response || 
-          response.status !== 200 || 
-          response.type !== 'basic'
-        ) {
-          return response;
-        }
+    caches.match(request).then(async (cached) => {
+      if (cached) {
+        return cached;
+      }
 
-        const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
-        return response;
-      })
-      .catch(() => {
-        // Offline or Network Error: Return from cache
-        return caches.match(event.request).then((cached) => {
-          if (cached) return cached;
-          
-          // Navigation fallback to index.html
-          if (event.request.mode === 'navigate') {
-            return caches.match('/');
-          }
-          return null;
-        });
-      })
+      const response = await fetch(request);
+      if (response && response.status === 200 && response.type === 'basic') {
+        const cache = await caches.open(RUNTIME_CACHE);
+        cache.put(request, response.clone());
+      }
+      return response;
+    }).catch(async () => {
+      const cached = await caches.match(request);
+      return cached || Response.error();
+    })
   );
 });
 
-// Push: Handle notifications
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener('push', (event) => {
   if (!event.data) return;
 
   try {
     const data = event.data.json();
-    const options = {
-      body: data.body || 'Tienes una nueva notificación',
-      icon: '/icons/icon-192.png',
-      badge: '/icons/badge-silhouette.png',
-      data: {
-        url: data.url || '/'
-      },
-      vibrate: [100, 50, 100]
-    };
-
     event.waitUntil(
-      self.registration.showNotification(data.title || 'Laris Home', options)
+      self.registration.showNotification(data.title || 'Laris Home', {
+        body: data.body || 'Tienes una nueva notificacion',
+        icon: '/icons/icon-192.png',
+        badge: '/icons/icon-192.png',
+        data: { url: data.url || '/' },
+        vibrate: [100, 50, 100],
+      })
     );
-  } catch (e) {
-    console.error('Push error:', e);
+  } catch (error) {
+    console.error('Push error:', error);
   }
 });
 
-// Notification Click: Handle redirect
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      const url = event.notification.data.url;
+      const url = event.notification.data?.url || '/';
       for (const client of clientList) {
         if ('focus' in client) {
-          return client.focus().then(() => {
-            if (url) return client.navigate(url);
-          });
+          return client.focus().then(() => ('navigate' in client ? client.navigate(url) : undefined));
         }
       }
-      if (clients.openWindow) {
-        return clients.openWindow(url || '/');
-      }
+      return clients.openWindow ? clients.openWindow(url) : undefined;
     })
   );
 });

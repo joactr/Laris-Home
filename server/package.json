@@ -7,7 +7,7 @@
     "start": "node dist/index.js",
     "migrate": "ts-node src/db/migrate.ts",
     "seed": "ts-node src/db/seed.ts",
-    "test": "vitest run"
+    "test": "JWT_SECRET=test-secret NODE_ENV=test vitest run"
   },
   "dependencies": {
     "@xenova/transformers": "^2.17.2",

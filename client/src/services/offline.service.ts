@@ -1,10 +1,16 @@
 export interface ScopeUser {
   id?: string;
-  householdId?: string;
+  householdId?: string | null;
 }
 
 export interface CachedEntry<T = unknown> {
   key: string;
+  value: T;
+  updatedAt: number;
+}
+
+export interface ScopedCachedEntry<T = unknown> {
+  path: string;
   value: T;
   updatedAt: number;
 }
@@ -19,10 +25,23 @@ export interface ShoppingQueueEntry {
   createdAt: number;
 }
 
+export interface OfflineMutationEntry {
+  id: string;
+  scope: string;
+  resource: 'calendar' | 'chores' | 'meals';
+  operation: 'create' | 'update' | 'delete' | 'status';
+  entityId: string;
+  path: string;
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  body?: Record<string, unknown>;
+  createdAt: number;
+}
+
 const DB_NAME = 'laris-home-offline';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const CACHE_STORE = 'cache';
-const QUEUE_STORE = 'shopping_queue';
+const SHOPPING_QUEUE_STORE = 'shopping_queue';
+const MUTATION_QUEUE_STORE = 'mutation_queue';
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -33,10 +52,16 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(CACHE_STORE)) {
         db.createObjectStore(CACHE_STORE, { keyPath: 'key' });
       }
-      if (!db.objectStoreNames.contains(QUEUE_STORE)) {
-        const store = db.createObjectStore(QUEUE_STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(SHOPPING_QUEUE_STORE)) {
+        const store = db.createObjectStore(SHOPPING_QUEUE_STORE, { keyPath: 'id' });
         store.createIndex('scope', 'scope', { unique: false });
         store.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(MUTATION_QUEUE_STORE)) {
+        const store = db.createObjectStore(MUTATION_QUEUE_STORE, { keyPath: 'id' });
+        store.createIndex('scope', 'scope', { unique: false });
+        store.createIndex('createdAt', 'createdAt', { unique: false });
+        store.createIndex('resource', 'resource', { unique: false });
       }
     };
 
@@ -93,12 +118,51 @@ export async function setCachedValue<T>(scope: string, path: string, value: T): 
   });
 }
 
+export async function listScopedCacheEntries<T>(scope: string, prefix?: string): Promise<ScopedCachedEntry<T>[]> {
+  const cachePrefix = `${scope}:`;
+  const entries: ScopedCachedEntry<T>[] = [];
+
+  return new Promise(async (resolve, reject) => {
+    try {
+      const db = await openDb();
+      const tx = db.transaction(CACHE_STORE, 'readonly');
+      const store = tx.objectStore(CACHE_STORE);
+      const request = store.openCursor();
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve(entries);
+          return;
+        }
+
+        const rawEntry = cursor.value as CachedEntry<T>;
+        if (String(rawEntry.key).startsWith(cachePrefix)) {
+          const path = String(rawEntry.key).slice(cachePrefix.length);
+          if (!prefix || path.startsWith(prefix)) {
+            entries.push({
+              path,
+              value: rawEntry.value,
+              updatedAt: rawEntry.updatedAt,
+            });
+          }
+        }
+        cursor.continue();
+      };
+
+      request.onerror = () => reject(request.error);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
 export async function listShoppingQueueEntries(scope: string): Promise<ShoppingQueueEntry[]> {
   return new Promise(async (resolve, reject) => {
     try {
       const db = await openDb();
-      const tx = db.transaction(QUEUE_STORE, 'readonly');
-      const store = tx.objectStore(QUEUE_STORE);
+      const tx = db.transaction(SHOPPING_QUEUE_STORE, 'readonly');
+      const store = tx.objectStore(SHOPPING_QUEUE_STORE);
       const request = store.getAll();
 
       request.onsuccess = () => {
@@ -115,8 +179,8 @@ export async function listShoppingQueueEntries(scope: string): Promise<ShoppingQ
 
 export async function putShoppingQueueEntry(entry: ShoppingQueueEntry): Promise<void> {
   const db = await openDb();
-  const tx = db.transaction(QUEUE_STORE, 'readwrite');
-  const store = tx.objectStore(QUEUE_STORE);
+  const tx = db.transaction(SHOPPING_QUEUE_STORE, 'readwrite');
+  const store = tx.objectStore(SHOPPING_QUEUE_STORE);
   await runRequest(store.put(entry));
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
@@ -127,8 +191,8 @@ export async function putShoppingQueueEntry(entry: ShoppingQueueEntry): Promise<
 
 export async function deleteShoppingQueueEntry(id: string): Promise<void> {
   const db = await openDb();
-  const tx = db.transaction(QUEUE_STORE, 'readwrite');
-  const store = tx.objectStore(QUEUE_STORE);
+  const tx = db.transaction(SHOPPING_QUEUE_STORE, 'readwrite');
+  const store = tx.objectStore(SHOPPING_QUEUE_STORE);
   await runRequest(store.delete(id));
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
@@ -148,15 +212,60 @@ export async function replaceShoppingQueueItemId(scope: string, oldItemId: strin
   }
 }
 
+export async function listOfflineMutationEntries(scope: string): Promise<OfflineMutationEntry[]> {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const db = await openDb();
+      const tx = db.transaction(MUTATION_QUEUE_STORE, 'readonly');
+      const store = tx.objectStore(MUTATION_QUEUE_STORE);
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        const entries = (request.result as OfflineMutationEntry[]).filter((entry) => entry.scope === scope);
+        entries.sort((a, b) => a.createdAt - b.createdAt);
+        resolve(entries);
+      };
+      request.onerror = () => reject(request.error);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+export async function putOfflineMutationEntry(entry: OfflineMutationEntry): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction(MUTATION_QUEUE_STORE, 'readwrite');
+  const store = tx.objectStore(MUTATION_QUEUE_STORE);
+  await runRequest(store.put(entry));
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export async function deleteOfflineMutationEntry(id: string): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction(MUTATION_QUEUE_STORE, 'readwrite');
+  const store = tx.objectStore(MUTATION_QUEUE_STORE);
+  await runRequest(store.delete(id));
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
 export async function clearOfflineScopeData(scope: string): Promise<void> {
   const cachePrefix = `${scope}:`;
 
   await new Promise<void>(async (resolve, reject) => {
     try {
       const db = await openDb();
-      const tx = db.transaction([CACHE_STORE, QUEUE_STORE], 'readwrite');
+      const tx = db.transaction([CACHE_STORE, SHOPPING_QUEUE_STORE, MUTATION_QUEUE_STORE], 'readwrite');
       const cacheStore = tx.objectStore(CACHE_STORE);
-      const queueStore = tx.objectStore(QUEUE_STORE);
+      const shoppingQueueStore = tx.objectStore(SHOPPING_QUEUE_STORE);
+      const mutationQueueStore = tx.objectStore(MUTATION_QUEUE_STORE);
 
       cacheStore.openCursor().onsuccess = (event) => {
         const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
@@ -167,7 +276,16 @@ export async function clearOfflineScopeData(scope: string): Promise<void> {
         cursor.continue();
       };
 
-      queueStore.openCursor().onsuccess = (event) => {
+      shoppingQueueStore.openCursor().onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
+        if (!cursor) return;
+        if (cursor.value.scope === scope) {
+          cursor.delete();
+        }
+        cursor.continue();
+      };
+
+      mutationQueueStore.openCursor().onsuccess = (event) => {
         const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
         if (!cursor) return;
         if (cursor.value.scope === scope) {

@@ -1,28 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../../api/client';
+import { api } from '../../api';
 import { t } from '../../i18n';
+import { toastError, toastSuccess } from '../../store/toast';
+import type { ImportedRecipe, RecipeDraft, RecipeIngredient } from '../../../../shared/contracts';
 
 export default function RecipeImportPage() {
     const navigate = useNavigate();
     const [url, setUrl] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [recipe, setRecipe] = useState<any | null>(null);
-    const [lists, setLists] = useState<any[]>([]);
-    const [selectedListId, setSelectedListId] = useState('');
-    const [selectedIngredients, setSelectedIngredients] = useState<string[]>([]);
+    const [recipe, setRecipe] = useState<ImportedRecipe | null>(null);
     const [isSaving, setIsSaving] = useState(false);
-
-    useEffect(() => {
-        api.shopping.getLists().then(setLists);
-    }, []);
-
-    useEffect(() => {
-        if (lists.length && !selectedListId) {
-            setSelectedListId(lists[0].id);
-        }
-    }, [lists]);
 
     const handleImport = async () => {
         if (!url) return;
@@ -31,9 +20,10 @@ export default function RecipeImportPage() {
         try {
             const data = await api.recipes.importFromUrl(url);
             setRecipe({ ...data, sourceUrl: url });
-            setSelectedIngredients(data.ingredients.map((_: any, i: number) => i.toString()));
-        } catch (err: any) {
-            setError(err.message || 'Error al importar la receta');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Error al importar la receta';
+            setError(message);
+            toastError('No se pudo importar la receta', message);
         } finally {
             setLoading(false);
         }
@@ -43,27 +33,16 @@ export default function RecipeImportPage() {
         if (!recipe) return;
         setIsSaving(true);
         try {
-            const savedRecipe = await api.recipes.save(recipe);
-            
-            // If ingredients are selected to be added to shopping list
-            if (selectedIngredients.length > 0 && selectedListId) {
-                const ingredientIds = selectedIngredients.map(idx => savedRecipe.ingredients[parseInt(idx)].id);
-                await api.recipes.addToShoppingList(savedRecipe.id, selectedListId, ingredientIds);
-            }
-            
+            await api.recipes.save(recipe);
+            toastSuccess('Receta creada', 'La receta se ha guardado correctamente.');
             navigate('/recipes');
-        } catch (err: any) {
-            setError(err.message || 'Error al guardar la receta');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Error al guardar la receta';
+            setError(message);
+            toastError('No se pudo guardar la receta', message);
         } finally {
             setIsSaving(false);
         }
-    };
-
-    const toggleIngredient = (idx: number) => {
-        const s = idx.toString();
-        setSelectedIngredients(prev => 
-            prev.includes(s) ? prev.filter(i => i !== s) : [...prev, s]
-        );
     };
 
     if (recipe) {
@@ -73,7 +52,7 @@ export default function RecipeImportPage() {
                     <div className="page-title">Revisar Receta Importada</div>
                 </div>
 
-                <div className="card" style={{ maxWidth: 800, margin: '0 auto' }}>
+                <div className="card compact-form-card">
                     <div className="form-group">
                         <label className="label">Título</label>
                         <input 
@@ -114,7 +93,7 @@ export default function RecipeImportPage() {
                         )}
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+                    <div className="field-grid three">
                         <div className="form-group">
                             <label className="label">{t('recipes.servings')}</label>
                             <input 
@@ -144,7 +123,7 @@ export default function RecipeImportPage() {
                         </div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginTop: 16 }}>
+                    <div className="field-grid four form-group-stack">
                         <div className="form-group">
                             <label className="label">{t('recipes.calories')}</label>
                             <input 
@@ -184,19 +163,12 @@ export default function RecipeImportPage() {
                     </div>
 
                     <div className="form-group" style={{ marginTop: 16 }}>
-                        <label className="label">{t('recipes.ingredients')} (Selecciona para añadir a la lista)</label>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {recipe.ingredients.map((ing: any, idx: number) => (
-                                <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                    <input 
-                                        type="checkbox" 
-                                        className="checkbox-mini"
-                                        checked={selectedIngredients.includes(idx.toString())}
-                                        onChange={() => toggleIngredient(idx)}
-                                    />
+                        <label className="label">{t('recipes.ingredients')}</label>
+                        <div className="ingredient-edit-list">
+                            {recipe.ingredients.map((ing: RecipeIngredient, idx: number) => (
+                                <div key={idx} className="ingredient-edit-row">
                                     <input 
                                         className="input" 
-                                        style={{ flex: 1 }}
                                         value={ing.name}
                                         onChange={e => {
                                             const newIngs = [...recipe.ingredients];
@@ -204,24 +176,11 @@ export default function RecipeImportPage() {
                                             setRecipe({...recipe, ingredients: newIngs});
                                         }}
                                     />
-                                    <span style={{ fontSize: 12, color: '#666', width: 100 }}>{ing.quantity} {ing.unit}</span>
+                                    <span className="ingredient-edit-meta">{ing.quantity} {ing.unit}</span>
                                 </div>
                             ))}
                         </div>
                     </div>
-
-                    {selectedIngredients.length > 0 && (
-                        <div className="form-group" style={{ background: '#f5f5f5', padding: 12, borderRadius: 8 }}>
-                            <label className="label">Añadir seleccionados a:</label>
-                            <select 
-                                className="input" 
-                                value={selectedListId} 
-                                onChange={e => setSelectedListId(e.target.value)}
-                            >
-                                {lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                            </select>
-                        </div>
-                    )}
 
                     <div className="form-group">
                         <label className="label">{t('recipes.instructions')} (una por línea)</label>
@@ -253,10 +212,11 @@ export default function RecipeImportPage() {
                 </div>
             </div>
 
-            <div className="card" style={{ maxWidth: 600, margin: '2rem auto' }}>
+            <div className="card compact-form-card compact-form-card-narrow">
                 <div className="form-group">
-                    <label className="label">URL de la Receta</label>
+                    <label className="label" htmlFor="recipe-import-url">URL de la Receta</label>
                     <input 
+                        id="recipe-import-url"
                         className="input" 
                         placeholder="https://ejemplo.com/receta-de-pollo"
                         value={url}

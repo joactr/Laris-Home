@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { api } from '../api/client';
+import { api, ApiClientError } from '../api';
 
 interface VoiceAssistantState {
   isListening: boolean;
@@ -17,118 +17,100 @@ export function useVoiceAssistant() {
   });
 
   const mediaRecorder = useRef<MediaRecorder | null>(null);
-  const socket = useRef<WebSocket | null>(null);
-  const audioContext = useRef<AudioContext | null>(null);
-  const finalTranscriptRef = useRef<string>('');
+  const mediaStream = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const onFinalTranscriptRef = useRef<((transcript: string) => void | Promise<void>) | null>(null);
 
-  const cleanup = useCallback(() => {
-    if (mediaRecorder.current && mediaRecorder.current.state !== 'inactive') {
-      mediaRecorder.current.stop();
+  const stopTracks = useCallback(() => {
+    mediaStream.current?.getTracks().forEach((track) => track.stop());
+    mediaStream.current = null;
+  }, []);
+
+  const cleanupRecorder = useCallback(() => {
+    mediaRecorder.current = null;
+    chunksRef.current = [];
+    setState((prev) => ({ ...prev, isListening: false }));
+  }, []);
+
+  const processRecording = useCallback(async (chunks: BlobPart[], mimeType: string) => {
+    const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+    if (!blob.size) {
+      setState((prev) => ({ ...prev, isProcessing: false, error: 'No se detecto audio en la grabacion.' }));
+      return;
     }
-    if (socket.current && socket.current.readyState === WebSocket.OPEN) {
-      socket.current.close();
+
+    try {
+      const result = await api.voice.transcribe(blob);
+      setState((prev) => ({ ...prev, transcript: result.transcript }));
+      if (result.transcript.trim()) {
+        await Promise.resolve(onFinalTranscriptRef.current?.(result.transcript));
+      }
+      setState((prev) => ({ ...prev, isProcessing: false, transcript: '' }));
+    } catch (error) {
+      const message = error instanceof ApiClientError ? error.message : 'No se pudo transcribir el audio.';
+      setState((prev) => ({ ...prev, isProcessing: false, error: message, transcript: '' }));
     }
-    if (audioContext.current) {
-      audioContext.current.close();
-    }
-    setState(prev => ({ ...prev, isListening: false }));
   }, []);
 
   const startListening = useCallback(async (
-    onFinalTranscript: (transcript: string) => void
+    onFinalTranscript: (transcript: string) => void | Promise<void>
   ) => {
     try {
-      setState({ isListening: true, transcript: '', isProcessing: false, error: null });
-      finalTranscriptRef.current = '';
-
-      // Fetch config
-      const config = await api.voice.getConfig();
-      if (!config.apiKey) {
-        throw new Error('API Key de Deepgram no encontrada');
-      }
-
-      // Get microphone access
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Setup WebSocket
-      socket.current = new WebSocket(
-        `wss://api.deepgram.com/v1/listen?model=nova-2&language=${config.language}&punctuate=true&interim_results=true&endpointing=${config.endpointing}`,
-        ['token', config.apiKey]
-      );
+      const mimeType = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+      ].find((candidate) => MediaRecorder.isTypeSupported(candidate)) || '';
 
-      socket.current.onopen = () => {
-        mediaRecorder.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-        
-        mediaRecorder.current.addEventListener('dataavailable', async (event) => {
-          if (event.data.size > 0 && socket.current?.readyState === WebSocket.OPEN) {
-            socket.current.send(event.data);
-          }
-        });
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      mediaStream.current = stream;
+      mediaRecorder.current = recorder;
+      onFinalTranscriptRef.current = onFinalTranscript;
+      chunksRef.current = [];
 
-        mediaRecorder.current.start(250);
-      };
-
-      socket.current.onmessage = (message) => {
-        const data = JSON.parse(message.data);
-        if (data.channel?.alternatives?.[0]) {
-          const alternative = data.channel.alternatives[0];
-          const text = alternative.transcript;
-          
-          if (data.is_final) {
-             if (text) {
-                finalTranscriptRef.current += (finalTranscriptRef.current ? ' ' : '') + text;
-             }
-             setState(prev => ({ ...prev, transcript: finalTranscriptRef.current }));
-          } else {
-             if (text) {
-                setState(prev => ({ ...prev, transcript: (finalTranscriptRef.current ? finalTranscriptRef.current + ' ' : '') + text }));
-             }
-          }
-
-          if (data.speech_final) {
-             const finalResult = finalTranscriptRef.current;
-             if (finalResult.trim()) {
-                 setState(prev => ({ ...prev, isProcessing: true }));
-                 cleanup();
-                 Promise.resolve(onFinalTranscript(finalResult)).finally(() => {
-                     setState(prev => ({ ...prev, isProcessing: false, transcript: '' }));
-                 });
-             } else {
-                 cleanup();
-             }
-          }
+      recorder.addEventListener('dataavailable', (event) => {
+        if (event.data.size > 0) {
+          chunksRef.current.push(event.data);
         }
-      };
+      });
 
-      socket.current.onerror = (error) => {
-        console.error('Deepgram WebSocket Error:', error);
-        setState(prev => ({ ...prev, error: 'Revisa conexión a internet o configuración' }));
-        cleanup();
-      };
+      recorder.addEventListener('stop', () => {
+        const chunks = chunksRef.current;
+        const recordedMimeType = recorder.mimeType || mimeType || 'audio/webm';
+        chunksRef.current = [];
+        mediaRecorder.current = null;
+        stopTracks();
+        setState((prev) => ({ ...prev, isListening: false, isProcessing: true }));
+        void processRecording(chunks, recordedMimeType);
+      });
 
-      socket.current.onclose = () => {
-        cleanup();
-      };
-
-    } catch (err: any) {
-      console.error('Error starting voice assistant:', err);
-      // specific microphone error
-      if (err.name === 'NotAllowedError' || err.name === 'NotFoundError') {
-         setState(prev => ({ ...prev, error: 'Activa el micrófono en tu navegador', isListening: false }));
-      } else {
-         setState(prev => ({ ...prev, error: err.message || 'Error al conectar', isListening: false }));
-      }
-      cleanup();
+      recorder.start();
+      setState({ isListening: true, transcript: '', isProcessing: false, error: null });
+    } catch (error: any) {
+      const message = error?.name === 'NotAllowedError' || error?.name === 'NotFoundError'
+        ? 'Activa el microfono en tu navegador'
+        : error?.message || 'Error al iniciar la grabacion';
+      stopTracks();
+      cleanupRecorder();
+      setState((prev) => ({ ...prev, error: message, isListening: false }));
     }
-  }, [cleanup]);
+  }, [cleanupRecorder, processRecording, stopTracks]);
 
   const stopListening = useCallback(() => {
-    cleanup();
-  }, [cleanup]);
+    if (mediaRecorder.current && mediaRecorder.current.state !== 'inactive') {
+      mediaRecorder.current.stop();
+      return;
+    }
+    stopTracks();
+    cleanupRecorder();
+  }, [cleanupRecorder, stopTracks]);
 
   return {
     ...state,
     startListening,
-    stopListening
+    stopListening,
   };
 }

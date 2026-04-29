@@ -8,7 +8,7 @@ interface User {
     username: string;
     is_admin: boolean;
     color: string;
-    householdId: string;
+    householdId: string | null;
 }
 
 interface AuthState {

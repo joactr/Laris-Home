@@ -1,18 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api } from '../../api/client';
+import { api } from '../../api';
 import { t } from '../../i18n';
 import { useVoiceStore } from '../../store/voice';
 import ConfirmModal from '../../components/ConfirmModal';
 import StatusModal from '../../components/StatusModal';
+import type {
+    RecipeRecord,
+    ShoppingList,
+    VoiceRecipeCommandProposal,
+} from '../../../../shared/contracts';
 
 export default function RecipeDetail() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
-    const [recipe, setRecipe] = useState<any | null>(null);
+    const [recipe, setRecipe] = useState<RecipeRecord | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [lists, setLists] = useState<any[]>([]);
+    const [lists, setLists] = useState<ShoppingList[]>([]);
     const [showShoppingModal, setShowShoppingModal] = useState(false);
     const [selectedListId, setSelectedListId] = useState('');
     const [selectedIngredients, setSelectedIngredients] = useState<string[]>([]);
@@ -21,7 +26,7 @@ export default function RecipeDetail() {
     // Modal state
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
-    const [proposedRecipe, setProposedRecipe] = useState<any | null>(null);
+    const [proposedRecipe, setProposedRecipe] = useState<VoiceRecipeCommandProposal | null>(null);
     const [isApplyingVoiceChange, setIsApplyingVoiceChange] = useState(false);
     const [voiceTranscript, setVoiceTranscript] = useState('');
     const [voiceFallback, setVoiceFallback] = useState<{ message: string; transcript: string } | null>(null);
@@ -60,16 +65,16 @@ export default function RecipeDetail() {
                     setVoiceFallback(null);
                 }
             }
-        } catch (err: any) {
+        } catch (err: unknown) {
             setVoiceFallback({
-                message: err.message || t('common.error'),
+                message: err instanceof Error ? err.message : t('common.error'),
                 transcript,
             });
         }
     }, [id]);
 
     const applyProposedChange = async () => {
-        if (!id || !proposedRecipe) return;
+        if (!id || !proposedRecipe || !recipe) return;
         setIsApplyingVoiceChange(true);
         try {
             const updated = await api.recipes.update(id, {
@@ -79,9 +84,9 @@ export default function RecipeDetail() {
             setRecipe(updated);
             setProposedRecipe(null);
             setVoiceMessage(null);
-        } catch (err: any) {
+        } catch (err: unknown) {
             setVoiceFallback({
-                message: err.message || t('common.error'),
+                message: err instanceof Error ? err.message : t('common.error'),
                 transcript: voiceTranscript,
             });
         } finally {
@@ -113,9 +118,9 @@ export default function RecipeDetail() {
             await api.recipes.delete(recipe.id);
             setShowDeleteConfirm(false);
             navigate('/recipes');
-        } catch (err: any) {
+        } catch (err: unknown) {
             setVoiceFallback({
-                message: err.message || 'Error deleting recipe',
+                message: err instanceof Error ? err.message : 'Error deleting recipe',
                 transcript: '',
             });
         }
@@ -138,9 +143,9 @@ export default function RecipeDetail() {
             });
             setShowShoppingModal(false);
             setSelectedIngredients([]);
-        } catch (err: any) {
+        } catch (err: unknown) {
             setVoiceFallback({
-                message: err.message || 'Error al añadir ingredientes',
+                message: err instanceof Error ? err.message : 'Error al añadir ingredientes',
                 transcript: '',
             });
         } finally {
@@ -215,11 +220,11 @@ export default function RecipeDetail() {
                             )}
                         </h3>
                         <ul className="ingredients-list">
-                            {recipe.ingredients?.map((ing: any) => (
+                            {recipe.ingredients?.map((ing) => (
                                 <li key={ing.id} className="ingredient-item">
                                     <input 
                                         type="checkbox" 
-                                        className="checkbox-mini touch-target"
+                                        className="checkbox-mini"
                                         checked={selectedIngredients.includes(ing.id)} 
                                         onChange={() => toggleIngredient(ing.id)} 
                                     />
@@ -257,7 +262,7 @@ export default function RecipeDetail() {
                         <div className="form-group">
                             <label className="label" htmlFor="list-select">{t('page.shopping')}</label>
                             <select id="list-select" className="input" value={selectedListId} onChange={e => setSelectedListId(e.target.value)}>
-                                {lists.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                {lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                             </select>
                         </div>
                         <div className="modal-actions">

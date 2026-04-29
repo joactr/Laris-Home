@@ -1,33 +1,54 @@
 import { useAuthStore } from '../store/auth';
 import { useOfflineStore } from '../store/offline';
+import type {
+    ApiErrorPayload,
+    AuthUser,
+    CalendarEvent,
+    DashboardPayload,
+    DashboardSummary,
+    LoginResponse,
+    VoiceRecipeCommandProposal,
+    VoiceShoppingItem,
+    VoiceEnvelope,
+    VoiceRecipeSuggestion,
+    VoiceTranscriptionResponse,
+} from '../../../shared/contracts';
 import {
     createOfflineId,
     getCachedValue,
     getScopeFromUser,
     getShoppingItemsPath,
+    listOfflineMutationEntries,
+    listScopedCacheEntries,
     listShoppingQueueEntries,
     putShoppingQueueEntry,
+    putOfflineMutationEntry,
     deleteShoppingQueueEntry,
+    deleteOfflineMutationEntry,
     replaceShoppingQueueItemId,
     setCachedValue,
+    type OfflineMutationEntry,
     type ShoppingQueueEntry,
 } from '../services/offline.service';
 
 const BASE = '/api';
 
-type VoiceEnvelopeStatus = 'success' | 'needs_review' | 'fallback';
-
-export type VoiceEnvelope<T extends Record<string, unknown>> = {
-    status: VoiceEnvelopeStatus;
-    message: string;
-    code?: string;
-    retryable?: boolean;
-    transcript?: string;
-} & T;
-
 type RequestConfig = {
     bypassOfflineGuard?: boolean;
 };
+
+export class ApiClientError extends Error {
+    readonly code: string;
+    readonly status?: number;
+    readonly details?: unknown;
+
+    constructor(message: string, code = 'UNKNOWN_ERROR', status?: number, details?: unknown) {
+        super(message);
+        this.code = code;
+        this.status = status;
+        this.details = details;
+    }
+}
 
 function getToken() {
     return useAuthStore.getState().token;
@@ -37,23 +58,27 @@ function getCurrentUser() {
     return useAuthStore.getState().user;
 }
 
-function getCurrentScope() {
+export function getCurrentScope() {
     return getScopeFromUser(getCurrentUser());
 }
 
-function isOffline() {
+export function isOffline() {
     return typeof navigator !== 'undefined' && !navigator.onLine;
 }
 
-function isOfflineError(error: unknown) {
+export function isOfflineError(error: unknown) {
     return error instanceof TypeError || (error instanceof Error && error.message === 'OFFLINE_UNAVAILABLE');
 }
 
 function shouldCacheGet(path: string) {
     return (
         path === '/dashboard' ||
+        path === '/dashboard/summary' ||
         path === '/shopping/lists' ||
         /^\/shopping\/lists\/[^/]+\/items$/.test(path) ||
+        path.startsWith('/calendar?') ||
+        path.startsWith('/chores/instances?') ||
+        path.startsWith('/chores/stats?') ||
         path.startsWith('/meals?') ||
         path === '/recipes' ||
         /^\/recipes\/[^/]+$/.test(path)
@@ -62,6 +87,67 @@ function shouldCacheGet(path: string) {
 
 function getCachedPath(path: string) {
     return shouldCacheGet(path) ? path : null;
+}
+
+function hasPendingOfflineState(value: unknown): boolean {
+    if (Array.isArray(value)) {
+        return value.some((item) => hasPendingOfflineState(item));
+    }
+
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+
+    const candidate = value as Record<string, unknown>;
+    if (candidate.pending_sync || candidate.local_only || candidate.sync_error) {
+        return true;
+    }
+
+    return Object.values(candidate).some((nested) => hasPendingOfflineState(nested));
+}
+
+function stripTime(value: string | null | undefined) {
+    return String(value || '').slice(0, 10);
+}
+
+function getRangeParams(path: string) {
+    const query = path.split('?')[1];
+    if (!query) return null;
+    const params = new URLSearchParams(query);
+    const start = params.get('start');
+    const end = params.get('end');
+    if (!start || !end) return null;
+    return {
+        start,
+        end,
+        startDate: stripTime(start),
+        endDate: stripTime(end),
+    };
+}
+
+function isDateWithinPathRange(path: string, dateValue: string | null | undefined) {
+    if (!dateValue) return false;
+    const range = getRangeParams(path);
+    if (!range) return true;
+    const date = stripTime(dateValue);
+    return date >= range.startDate && date <= range.endDate;
+}
+
+function sortEvents(items: any[]) {
+    return [...items].sort((a, b) => +new Date(a.start_datetime) - +new Date(b.start_datetime));
+}
+
+function sortChores(items: any[]) {
+    return [...items].sort((a, b) => {
+        const dateDiff = stripTime(a.scheduled_date).localeCompare(stripTime(b.scheduled_date));
+        if (dateDiff !== 0) return dateDiff;
+        return String(a.title || '').localeCompare(String(b.title || ''));
+    });
+}
+
+function sortMeals(items: any[]) {
+    const order: Record<string, number> = { breakfast: 0, lunch: 1, dinner: 2, snack: 3 };
+    return [...items].sort((a, b) => (order[a.meal_type] ?? 99) - (order[b.meal_type] ?? 99));
 }
 
 async function rawRequest<T>(path: string, options: RequestInit = {}, config: RequestConfig = {}): Promise<T> {
@@ -82,14 +168,32 @@ async function rawRequest<T>(path: string, options: RequestInit = {}, config: Re
         }
     }
 
+    if (method === 'GET' && cachePath) {
+        const cached = await getCachedValue<T>(scope, cachePath);
+        if (cached !== undefined && hasPendingOfflineState(cached)) {
+            return cached;
+        }
+    }
+
+    const headers = new Headers(options.headers || {});
+    const shouldSetJsonHeader = !headers.has('Content-Type')
+        && options.body != null
+        && !(options.body instanceof FormData)
+        && !(options.body instanceof Blob)
+        && !(options.body instanceof ArrayBuffer);
+
+    if (shouldSetJsonHeader) {
+        headers.set('Content-Type', 'application/json');
+    }
+
+    if (shouldAttachAuth) {
+        headers.set('Authorization', `Bearer ${token}`);
+    }
+
     try {
         const res = await fetch(`${BASE}${path}`, {
             ...options,
-            headers: {
-                'Content-Type': 'application/json',
-                ...(shouldAttachAuth ? { Authorization: `Bearer ${token}` } : {}),
-                ...options.headers,
-            },
+            headers,
             body: options.body,
         });
 
@@ -99,11 +203,19 @@ async function rawRequest<T>(path: string, options: RequestInit = {}, config: Re
         }
 
         if (!res.ok) {
-            const err = await res.json().catch(() => ({ error: res.statusText }));
-            const errMsg = typeof err.error === 'string'
-                ? err.error
-                : JSON.stringify(err.error ?? err);
-            throw new Error(errMsg || 'Request failed');
+            const err = await res.json().catch(() => ({ error: { message: res.statusText, code: 'UNKNOWN_ERROR' } })) as ApiErrorPayload | { error?: string };
+            if (err && typeof err === 'object' && 'error' in err && err.error && typeof err.error === 'object') {
+                const payload = err as ApiErrorPayload;
+                throw new ApiClientError(
+                    payload.error.message || 'Request failed',
+                    payload.error.code || 'UNKNOWN_ERROR',
+                    res.status,
+                    payload.error.details
+                );
+            }
+
+            const legacyMessage = typeof err.error === 'string' ? err.error : res.statusText;
+            throw new ApiClientError(legacyMessage || 'Request failed', 'UNKNOWN_ERROR', res.status);
         }
 
         if (res.status === 204) {
@@ -127,8 +239,237 @@ async function rawRequest<T>(path: string, options: RequestInit = {}, config: Re
 }
 
 async function updatePendingCount() {
-    const entries = await listShoppingQueueEntries(getCurrentScope());
-    useOfflineStore.getState().setPendingCount(entries.length);
+    const scope = getCurrentScope();
+    const [shoppingEntries, mutationEntries] = await Promise.all([
+        listShoppingQueueEntries(scope),
+        listOfflineMutationEntries(scope),
+    ]);
+    useOfflineStore.getState().setPendingCount(shoppingEntries.length + mutationEntries.length);
+}
+
+async function updateCachedCollections(prefix: string, updater: (path: string, value: any) => any) {
+    const scope = getCurrentScope();
+    const entries = await listScopedCacheEntries<any>(scope, prefix);
+    await Promise.all(entries.map((entry) => setCachedValue(scope, entry.path, updater(entry.path, entry.value))));
+}
+
+export async function enqueueOfflineMutation(entry: Omit<OfflineMutationEntry, 'id' | 'scope' | 'createdAt'>) {
+    await putOfflineMutationEntry({
+        ...entry,
+        id: createOfflineId(`${entry.resource}_queue`),
+        scope: getCurrentScope(),
+        createdAt: Date.now(),
+    });
+    await updatePendingCount();
+}
+
+export function buildOptimisticEvent(data: Record<string, unknown>, id = createOfflineId('calendar_event')) {
+    return {
+        id,
+        title: String(data.title || '').trim(),
+        description: data.description ?? null,
+        start_datetime: String(data.start_datetime || ''),
+        end_datetime: String(data.end_datetime || ''),
+        assigned_user_id: data.assigned_user_id ?? null,
+        category: data.category ?? 'shared',
+        recurrence: data.recurrence ?? null,
+        created_by_name: getCurrentUser()?.name,
+        created_by_color: getCurrentUser()?.color,
+        pending_sync: true,
+        sync_error: null,
+        local_only: true,
+    };
+}
+
+export async function upsertCachedCalendarEvent(nextEvent: CalendarEvent, previousEvent?: CalendarEvent) {
+    await updateCachedCollections('/calendar?', (path, value) => {
+        const current = Array.isArray(value) ? value : [];
+        const previousInRange = previousEvent && isDateWithinPathRange(path, previousEvent.start_datetime);
+        const nextInRange = isDateWithinPathRange(path, nextEvent.start_datetime);
+        const withoutCurrent = current.filter((item: any) => item.id !== nextEvent.id);
+
+        if (!nextInRange && !previousInRange) {
+            return current;
+        }
+
+        if (!nextInRange) {
+            return sortEvents(withoutCurrent);
+        }
+
+        return sortEvents([
+            ...withoutCurrent,
+            {
+                ...nextEvent,
+                pending_sync: nextEvent.pending_sync ?? false,
+                sync_error: nextEvent.sync_error ?? null,
+                local_only: nextEvent.local_only ?? false,
+            },
+        ]);
+    });
+}
+
+export async function removeCachedCalendarEvent(eventId: string) {
+    await updateCachedCollections('/calendar?', (_path, value) => {
+        const current = Array.isArray(value) ? value : [];
+        return current.filter((item: any) => item.id !== eventId);
+    });
+}
+
+async function replaceCachedCalendarEventId(oldId: string, nextEvent: any) {
+    await updateCachedCollections('/calendar?', (_path, value) => {
+        const current = Array.isArray(value) ? value : [];
+        return sortEvents(current.map((item: any) => (
+            item.id === oldId
+                ? { ...nextEvent, pending_sync: false, sync_error: null, local_only: false }
+                : item
+        )));
+    });
+}
+
+async function upsertCachedChore(nextChore: any) {
+    await updateCachedCollections('/chores/instances?', (path, value) => {
+        const current = Array.isArray(value) ? value : [];
+        const inRange = isDateWithinPathRange(path, nextChore.scheduled_date);
+        const withoutCurrent = current.filter((item: any) => item.id !== nextChore.id);
+        if (!inRange) return current;
+        return sortChores([
+            ...withoutCurrent,
+            {
+                ...nextChore,
+                pending_sync: nextChore.pending_sync ?? false,
+                sync_error: nextChore.sync_error ?? null,
+            },
+        ]);
+    });
+}
+
+async function removeCachedChore(choreId: string) {
+    await updateCachedCollections('/chores/instances?', (_path, value) => {
+        const current = Array.isArray(value) ? value : [];
+        return current.filter((item: any) => item.id !== choreId);
+    });
+}
+
+async function updateCachedChoreStats(chore: any, previousStatus?: string) {
+    if (!chore?.assigned_user_id) return;
+
+    await updateCachedCollections('/chores/stats?', (path, value) => {
+        if (!isDateWithinPathRange(path, chore.scheduled_date)) {
+            return value;
+        }
+
+        const current = Array.isArray(value) ? [...value] : [];
+        const index = current.findIndex((item: any) => item.id === chore.assigned_user_id);
+        const wasDone = previousStatus === 'done';
+        const isDoneNow = chore.status === 'done';
+        if (wasDone === isDoneNow) return current;
+
+        const deltaCompleted = isDoneNow ? 1 : -1;
+        const deltaPoints = isDoneNow ? Number(chore.points) || 0 : -(Number(chore.points) || 0);
+
+        if (index === -1) {
+            if (!isDoneNow) return current;
+            return [
+                ...current,
+                {
+                    id: chore.assigned_user_id,
+                    name: chore.assigned_name || 'Sin asignar',
+                    color: chore.assigned_color || '#94a3b8',
+                    completed: 1,
+                    points: Math.max(deltaPoints, 0),
+                },
+            ];
+        }
+
+        const currentStat = current[index];
+        current[index] = {
+            ...currentStat,
+            completed: Math.max(0, Number(currentStat.completed || 0) + deltaCompleted),
+            points: Math.max(0, Number(currentStat.points || 0) + deltaPoints),
+        };
+        return current;
+    });
+}
+
+function buildOptimisticMealItem(date: string, data: Record<string, unknown>, id = createOfflineId('meal_item')) {
+    return {
+        id,
+        date,
+        meal_type: data.meal_type,
+        recipe_id: data.recipe_id ?? null,
+        text_content: data.text_content ?? null,
+        servings: data.servings ?? 1,
+        recipe_title: data.text_content ?? null,
+        recipe_image_url: null,
+        prep_time_minutes: null,
+        cook_time_minutes: null,
+        calories_per_serving: null,
+        protein_per_serving: null,
+        carbs_per_serving: null,
+        fat_per_serving: null,
+        pending_sync: true,
+        sync_error: null,
+        local_only: true,
+    };
+}
+
+async function upsertCachedMealItem(date: string, nextItem: any) {
+    await updateCachedCollections('/meals?', (path, value) => {
+        if (!isDateWithinPathRange(path, date)) {
+            return value;
+        }
+
+        const current = Array.isArray(value) ? [...value] : [];
+        const dateKey = stripTime(date);
+        const dayIndex = current.findIndex((day: any) => stripTime(day.date) === dateKey);
+        const nextEntry = {
+            ...nextItem,
+            pending_sync: nextItem.pending_sync ?? false,
+            sync_error: nextItem.sync_error ?? null,
+            local_only: nextItem.local_only ?? false,
+        };
+
+        if (dayIndex === -1) {
+            return [...current, { date, items: [nextEntry] }];
+        }
+
+        const day = current[dayIndex];
+        const items = Array.isArray(day.items) ? day.items : [];
+        current[dayIndex] = {
+            ...day,
+            items: sortMeals([
+                ...items.filter((item: any) => item.id !== nextItem.id),
+                nextEntry,
+            ]),
+        };
+        return current;
+    });
+}
+
+async function removeCachedMealItem(itemId: string) {
+    await updateCachedCollections('/meals?', (_path, value) => {
+        const current = Array.isArray(value) ? [...value] : [];
+        return current
+            .map((day: any) => ({
+                ...day,
+                items: (Array.isArray(day.items) ? day.items : []).filter((item: any) => item.id !== itemId),
+            }))
+            .filter((day: any) => Array.isArray(day.items) && day.items.length > 0);
+    });
+}
+
+async function replaceCachedMealItemId(oldId: string, nextItem: any) {
+    await updateCachedCollections('/meals?', (_path, value) => {
+        const current = Array.isArray(value) ? [...value] : [];
+        return current.map((day: any) => ({
+            ...day,
+            items: sortMeals((Array.isArray(day.items) ? day.items : []).map((item: any) => (
+                item.id === oldId
+                    ? { ...item, ...nextItem, pending_sync: false, sync_error: null, local_only: false }
+                    : item
+            ))),
+        }));
+    });
 }
 
 async function readCachedShoppingItems(listId: string) {
@@ -283,6 +624,108 @@ async function syncShoppingQueue() {
     await updatePendingCount();
 }
 
+async function syncOfflineMutationQueue() {
+    if (isOffline() || !getToken()) {
+        return;
+    }
+
+    const scope = getCurrentScope();
+    const entries = await listOfflineMutationEntries(scope);
+
+    for (const entry of entries) {
+        try {
+            if (entry.resource === 'calendar') {
+                if (entry.operation === 'create') {
+                    const created = await rawRequest<any>(
+                        entry.path,
+                        { method: entry.method, body: JSON.stringify(entry.body || {}) },
+                        { bypassOfflineGuard: true }
+                    );
+                    await replaceCachedCalendarEventId(entry.entityId, created);
+                } else if (entry.operation === 'update') {
+                    const updated = await rawRequest<any>(
+                        entry.path,
+                        { method: entry.method, body: JSON.stringify(entry.body || {}) },
+                        { bypassOfflineGuard: true }
+                    );
+                    await upsertCachedCalendarEvent({ ...updated, pending_sync: false, sync_error: null, local_only: false });
+                } else if (entry.operation === 'delete') {
+                    await rawRequest<any>(entry.path, { method: entry.method }, { bypassOfflineGuard: true });
+                    await removeCachedCalendarEvent(entry.entityId);
+                }
+            }
+
+            if (entry.resource === 'chores') {
+                if (entry.operation === 'status') {
+                    const updated = await rawRequest<any>(
+                        entry.path,
+                        { method: entry.method, body: JSON.stringify(entry.body || {}) },
+                        { bypassOfflineGuard: true }
+                    );
+
+                    const cachedEntries = await listScopedCacheEntries<any[]>(scope, '/chores/instances?');
+                    const previousChore = cachedEntries
+                        .flatMap((cacheEntry) => cacheEntry.value || [])
+                        .find((item: any) => item.id === entry.entityId);
+                    const merged = {
+                        ...(previousChore || {}),
+                        ...updated,
+                        pending_sync: false,
+                        sync_error: null,
+                    };
+
+                    await upsertCachedChore(merged);
+                    await updateCachedChoreStats(merged, previousChore?.status);
+                } else if (entry.operation === 'delete') {
+                    await rawRequest<any>(entry.path, { method: entry.method }, { bypassOfflineGuard: true });
+                    await removeCachedChore(entry.entityId);
+                }
+            }
+
+            if (entry.resource === 'meals') {
+                if (entry.operation === 'create') {
+                    const created = await rawRequest<any>(
+                        entry.path,
+                        { method: entry.method, body: JSON.stringify(entry.body || {}) },
+                        { bypassOfflineGuard: true }
+                    );
+                    await replaceCachedMealItemId(entry.entityId, created);
+                } else if (entry.operation === 'update') {
+                    const updated = await rawRequest<any>(
+                        entry.path,
+                        { method: entry.method, body: JSON.stringify(entry.body || {}) },
+                        { bypassOfflineGuard: true }
+                    );
+                    const cachedEntries = await listScopedCacheEntries<any[]>(scope, '/meals?');
+                    const previousItem = cachedEntries
+                        .flatMap((cacheEntry) => cacheEntry.value || [])
+                        .flatMap((day: any) => day.items || [])
+                        .find((item: any) => item.id === entry.entityId);
+                    await upsertCachedMealItem(previousItem?.date || stripTime(updated.date || ''), {
+                        ...(previousItem || {}),
+                        ...updated,
+                        pending_sync: false,
+                        sync_error: null,
+                        local_only: false,
+                    });
+                } else if (entry.operation === 'delete') {
+                    await rawRequest<any>(entry.path, { method: entry.method }, { bypassOfflineGuard: true });
+                    await removeCachedMealItem(entry.entityId);
+                }
+            }
+
+            await deleteOfflineMutationEntry(entry.id);
+        } catch (error) {
+            if (!isOfflineError(error)) {
+                await deleteOfflineMutationEntry(entry.id);
+            }
+        }
+    }
+
+    useOfflineStore.getState().setLastSyncedAt(Date.now());
+    await updatePendingCount();
+}
+
 let initialized = false;
 
 export function initializeClientDataLayer() {
@@ -295,10 +738,12 @@ export function initializeClientDataLayer() {
 
     void updatePendingCount();
     void syncShoppingQueue();
+    void syncOfflineMutationQueue();
 
     window.addEventListener('online', () => {
         useOfflineStore.getState().setIsOffline(false);
         void syncShoppingQueue();
+        void syncOfflineMutationQueue();
     });
 
     window.addEventListener('offline', () => {
@@ -311,29 +756,15 @@ export async function refreshOfflineDataState() {
     await updatePendingCount();
     if (!isOffline()) {
         await syncShoppingQueue();
+        await syncOfflineMutationQueue();
     }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     return rawRequest<T>(path, options);
 }
 
-// Auth
-export const api = {
-    auth: {
-        login: (username: string, password: string) =>
-            request<{ token: string; user: any }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
-        register: (name: string, username: string, password: string) =>
-            request<{ user: any }>('/auth/register', { method: 'POST', body: JSON.stringify({ name, username, password }) }),
-        getUsers: () => request<any[]>('/auth/users'),
-        changePassword: (id: string, password: string) => request<any>(`/auth/users/${id}/password`, { method: 'PUT', body: JSON.stringify({ password }) }),
-        me: () => request<any>('/auth/me'),
-        members: () => request<any[]>('/auth/household/members'),
-    },
-    dashboard: {
-        get: () => request<any>('/dashboard'),
-    },
-    shopping: {
+export const shoppingApi = {
         getLists: () => request<any[]>('/shopping/lists'),
         createList: (name: string) => request<any>('/shopping/lists', { method: 'POST', body: JSON.stringify({ name }) }),
         deleteList: (id: string) => request<any>(`/shopping/lists/${id}`, { method: 'DELETE' }),
@@ -482,60 +913,181 @@ export const api = {
             return request<any>(`/shopping/items/${id}`, { method: 'DELETE' });
         },
         reAddItem: (id: string) => request<any>(`/shopping/items/${id}/readd`, { method: 'POST' }),
-    },
-    calendar: {
-        getEvents: (start: string, end: string) => request<any[]>(`/calendar?start=${start}&end=${end}`),
-        createEvent: (data: object) => request<any>('/calendar', { method: 'POST', body: JSON.stringify(data) }),
-        updateEvent: (id: string, data: object) => request<any>(`/calendar/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-        deleteEvent: (id: string) => request<any>(`/calendar/${id}`, { method: 'DELETE' }),
-    },
-    chores: {
+};
+
+export const choresApi = {
         getTemplates: () => request<any[]>('/chores/templates'),
         createTemplate: (data: object) => request<any>('/chores/templates', { method: 'POST', body: JSON.stringify(data) }),
         updateTemplate: (id: string, data: object) => request<any>(`/chores/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
         deleteTemplate: (id: string) => request<any>(`/chores/templates/${id}`, { method: 'DELETE' }),
         getInstances: (start: string, end: string) => request<any[]>(`/chores/instances?start=${start}&end=${end}`),
-        updateStatus: (id: string, status: string) =>
-            request<any>(`/chores/instances/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
-        deleteInstance: (id: string) => request<any>(`/chores/instances/${id}`, { method: 'DELETE' }),
+        updateStatus: async (id: string, status: string) => {
+            const cachedEntries = await listScopedCacheEntries<any[]>(getCurrentScope(), '/chores/instances?');
+            const previousChore = cachedEntries
+                .flatMap((entry) => entry.value || [])
+                .find((item: any) => item.id === id);
+
+            if (!isOffline()) {
+                try {
+                    const updated = await request<any>(`/chores/instances/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+                    const merged = { ...(previousChore || {}), ...updated };
+                    await upsertCachedChore(merged);
+                    await updateCachedChoreStats(merged, previousChore?.status);
+                    return merged;
+                } catch (error) {
+                    if (!isOfflineError(error)) throw error;
+                }
+            }
+
+            if (!previousChore) {
+                throw new Error('Tarea no encontrada en caché');
+            }
+
+            const optimisticChore = {
+                ...previousChore,
+                status,
+                completed_at: status === 'done' ? new Date().toISOString() : null,
+                pending_sync: true,
+                sync_error: null,
+            };
+            await upsertCachedChore(optimisticChore);
+            await updateCachedChoreStats(optimisticChore, previousChore.status);
+            await enqueueOfflineMutation({
+                resource: 'chores',
+                operation: 'status',
+                entityId: id,
+                path: `/chores/instances/${id}/status`,
+                method: 'PATCH',
+                body: { status },
+            });
+            return optimisticChore;
+        },
+        deleteInstance: async (id: string) => {
+            if (!isOffline()) {
+                try {
+                    const result = await request<any>(`/chores/instances/${id}`, { method: 'DELETE' });
+                    await removeCachedChore(id);
+                    return result;
+                } catch (error) {
+                    if (!isOfflineError(error)) throw error;
+                }
+            }
+
+            await removeCachedChore(id);
+            await enqueueOfflineMutation({
+                resource: 'chores',
+                operation: 'delete',
+                entityId: id,
+                path: `/chores/instances/${id}`,
+                method: 'DELETE',
+            });
+            return { ok: true, offline: true };
+        },
         getStats: (start: string, end: string) => request<any[]>(`/chores/stats?start=${start}&end=${end}`),
-    },
-    meals: {
+};
+
+export const mealsApi = {
         getWeek: (start: string, end: string) => request<any[]>(`/meals?start=${start}&end=${end}`),
-        addItem: (date: string, data: object) => request<any>(`/meals/${date}/items`, { method: 'POST', body: JSON.stringify(data) }),
-        updateItem: (id: string, data: object) => request<any>(`/meals/items/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-        deleteItem: (id: string) => request<any>(`/meals/items/${id}`, { method: 'DELETE' }),
+        addItem: async (date: string, data: Record<string, unknown>) => {
+            if (!isOffline()) {
+                try {
+                    const created = await request<any>(`/meals/${date}/items`, { method: 'POST', body: JSON.stringify(data) });
+                    await upsertCachedMealItem(date, created);
+                    return created;
+                } catch (error) {
+                    if (!isOfflineError(error)) throw error;
+                }
+            }
+
+            const optimisticItem = buildOptimisticMealItem(date, data);
+            await upsertCachedMealItem(date, optimisticItem);
+            await enqueueOfflineMutation({
+                resource: 'meals',
+                operation: 'create',
+                entityId: optimisticItem.id,
+                path: `/meals/${date}/items`,
+                method: 'POST',
+                body: data,
+            });
+            return optimisticItem;
+        },
+        updateItem: async (id: string, data: Record<string, unknown>) => {
+            const cachedEntries = await listScopedCacheEntries<any[]>(getCurrentScope(), '/meals?');
+            const previousItem = cachedEntries
+                .flatMap((entry) => entry.value || [])
+                .flatMap((day: any) => day.items || [])
+                .find((item: any) => item.id === id);
+
+            if (!isOffline()) {
+                try {
+                    const updated = await request<any>(`/meals/items/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+                    await upsertCachedMealItem(previousItem?.date || stripTime(updated.date || ''), {
+                        ...(previousItem || {}),
+                        ...updated,
+                    });
+                    return updated;
+                } catch (error) {
+                    if (!isOfflineError(error)) throw error;
+                }
+            }
+
+            if (!previousItem) {
+                throw new Error('Comida no encontrada en caché');
+            }
+
+            const optimisticItem = {
+                ...previousItem,
+                ...data,
+                pending_sync: true,
+                sync_error: null,
+            };
+            await upsertCachedMealItem(previousItem.date, optimisticItem);
+            await enqueueOfflineMutation({
+                resource: 'meals',
+                operation: 'update',
+                entityId: id,
+                path: `/meals/items/${id}`,
+                method: 'PUT',
+                body: data,
+            });
+            return optimisticItem;
+        },
+        deleteItem: async (id: string) => {
+            if (!isOffline()) {
+                try {
+                    const result = await request<any>(`/meals/items/${id}`, { method: 'DELETE' });
+                    await removeCachedMealItem(id);
+                    return result;
+                } catch (error) {
+                    if (!isOfflineError(error)) throw error;
+                }
+            }
+
+            await removeCachedMealItem(id);
+            await enqueueOfflineMutation({
+                resource: 'meals',
+                operation: 'delete',
+                entityId: id,
+                path: `/meals/items/${id}`,
+                method: 'DELETE',
+            });
+            return { ok: true, offline: true };
+        },
         addToShopping: (date: string, listId: string, ingredients: string) =>
             request<any>(`/meals/${date}/add-to-shopping`, { method: 'POST', body: JSON.stringify({ list_id: listId, ingredients }) }),
         generateShoppingFromRange: (start: string, end: string, listId: string) =>
             request<any>('/meals/generate-shopping', { method: 'POST', body: JSON.stringify({ start, end, listId }) }),
-    },
-    recipes: {
-        getAll: () => request<any[]>('/recipes'),
-        getById: (id: string) => request<any>(`/recipes/${id}`),
-        importFromUrl: (url: string) => request<any>('/recipes/import-from-url', { method: 'POST', body: JSON.stringify({ url }) }),
-        save: (data: object) => request<any>('/recipes', { method: 'POST', body: JSON.stringify(data) }),
-        update: (id: string, data: object) => request<any>(`/recipes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-        delete: (id: string) => request<any>(`/recipes/${id}`, { method: 'DELETE' }),
-        addToShoppingList: (recipeId: string, listId: string, ingredientIds: string[]) =>
-            request<any>(`/recipes/${recipeId}/add-to-shopping-list`, { method: 'POST', body: JSON.stringify({ listId, ingredientIds }) }),
-        createEnriched: (data: object) => request<any>('/recipes/create-enriched', { method: 'POST', body: JSON.stringify(data) }),
-    },
-    projects: {
-        getAll: () => request<any[]>('/projects'),
-        create: (data: object) => request<any>('/projects', { method: 'POST', body: JSON.stringify(data) }),
-        update: (id: string, data: object) => request<any>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-        delete: (id: string) => request<any>(`/projects/${id}`, { method: 'DELETE' }),
-        getTasks: (projectId: string) => request<any[]>(`/projects/${projectId}/tasks`),
-        createTask: (projectId: string, data: object) =>
-            request<any>(`/projects/${projectId}/tasks`, { method: 'POST', body: JSON.stringify(data) }),
-        updateTask: (id: string, data: object) => request<any>(`/projects/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-        deleteTask: (id: string) => request<any>(`/projects/tasks/${id}`, { method: 'DELETE' }),
-    },
-    voice: {
-        getConfig: () => request<{ apiKey: string; language: string; endpointing: string }>('/voice/config'),
-        processShopping: (transcript: string) => request<VoiceEnvelope<{ items: any[] }>>('/voice/shopping', { method: 'POST', body: JSON.stringify({ transcript }) }),
-        processRecipes: (transcript: string) => request<VoiceEnvelope<{ recipes: any[] }>>('/voice/recipes', { method: 'POST', body: JSON.stringify({ transcript }) }),
-        processRecipeCommand: (transcript: string, recipeId: string) => request<VoiceEnvelope<{ modified: boolean; proposedRecipe?: any | null }>>('/voice/recipe-command', { method: 'POST', body: JSON.stringify({ transcript, recipeId }) }),
-    },
+};
+
+export const voiceApi = {
+        getConfig: () => request<{ providerConfigured: boolean; language: string }>('/voice/config'),
+        transcribe: (audio: Blob) =>
+            request<VoiceTranscriptionResponse>('/voice/transcribe', {
+                method: 'POST',
+                headers: { 'Content-Type': audio.type || 'audio/webm' },
+                body: audio,
+            }),
+        processShopping: (transcript: string) => request<VoiceEnvelope<{ items: VoiceShoppingItem[] }>>('/voice/shopping', { method: 'POST', body: JSON.stringify({ transcript }) }),
+        processRecipes: (transcript: string) => request<VoiceEnvelope<{ recipes: VoiceRecipeSuggestion[] }>>('/voice/recipes', { method: 'POST', body: JSON.stringify({ transcript }) }),
+        processRecipeCommand: (transcript: string, recipeId: string) => request<VoiceEnvelope<{ modified: boolean; proposedRecipe?: VoiceRecipeCommandProposal | null }>>('/voice/recipe-command', { method: 'POST', body: JSON.stringify({ transcript, recipeId }) }),
 };

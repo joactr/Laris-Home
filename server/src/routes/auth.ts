@@ -4,9 +4,11 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { requireAdmin } from '../lib/admin';
+import { sendError } from '../lib/api-error';
+import { AUTH_TOKEN_TTL, getJwtSecret } from '../lib/jwt';
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 
 const RegisterSchema = z.object({
     name: z.string().min(1),
@@ -19,57 +21,71 @@ const LoginSchema = z.object({
     password: z.string().min(1),
 });
 
-router.post('/register', authMiddleware, async (req: AuthRequest, res: Response) => {
-    const { rows: adminRows } = await pool.query('SELECT is_admin FROM users WHERE id=$1', [req.user!.id]);
-    if (!adminRows.length || !adminRows[0].is_admin) {
-        res.status(403).json({ error: 'Only admins can register new users' });
+router.post('/register', authMiddleware, requireAdmin, async (req: AuthRequest, res: Response) => {
+    const householdId = req.user?.householdId;
+    if (!householdId) {
+        sendError(res, 400, 'BAD_REQUEST', 'Falta el household del usuario.');
         return;
     }
 
     const parsed = RegisterSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Los datos del usuario no son validos.', parsed.error.flatten());
+        return;
+    }
     const { name, username, password } = parsed.data;
     const hash = await bcrypt.hash(password, 10);
     try {
-        const result = await pool.query(
-            'INSERT INTO users (name, username, password_hash) VALUES ($1,$2,$3) RETURNING id, name, username, is_admin, color',
-            [name, username, hash]
-        );
-        res.status(201).json({ user: result.rows[0] });
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            const result = await client.query(
+                'INSERT INTO users (name, username, password_hash) VALUES ($1,$2,$3) RETURNING id, name, username, is_admin, color',
+                [name, username, hash]
+            );
+            const createdUser = result.rows[0];
+
+            await client.query(
+                `INSERT INTO memberships (user_id, household_id, role)
+                 VALUES ($1, $2, 'member')`,
+                [createdUser.id, householdId]
+            );
+
+            await client.query('COMMIT');
+            res.status(201).json({ user: { ...createdUser, householdId } });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
     } catch (err: any) {
-        if (err.code === '23505') { res.status(409).json({ error: 'Username already registered' }); return; }
+        if (err.code === '23505') {
+            sendError(res, 409, 'CONFLICT', 'Ese nombre de usuario ya existe.');
+            return;
+        }
         throw err;
     }
 });
 
-router.get('/users', authMiddleware, async (req: AuthRequest, res: Response) => {
-    const { rows: adminRows } = await pool.query('SELECT is_admin FROM users WHERE id=$1', [req.user!.id]);
-    if (!adminRows.length || !adminRows[0].is_admin) {
-        res.status(403).json({ error: 'Only admins can view all users' });
-        return;
-    }
+router.get('/users', authMiddleware, requireAdmin, async (_req: AuthRequest, res: Response) => {
     const { rows } = await pool.query('SELECT id, name, username, is_admin, color FROM users ORDER BY name ASC');
     res.json(rows);
 });
 
-router.put('/users/:id/password', authMiddleware, async (req: AuthRequest, res: Response) => {
-    const { rows: adminRows } = await pool.query('SELECT is_admin FROM users WHERE id=$1', [req.user!.id]);
-    if (!adminRows.length || !adminRows[0].is_admin) {
-        res.status(403).json({ error: 'Only admins can change user passwords' });
-        return;
-    }
-
+router.put('/users/:id/password', authMiddleware, requireAdmin, async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { password } = req.body;
     if (!password || password.length < 6) {
-        res.status(400).json({ error: 'Password must be at least 6 characters' });
+        sendError(res, 400, 'VALIDATION_ERROR', 'La contrasena debe tener al menos 6 caracteres.');
         return;
     }
 
     const hash = await bcrypt.hash(password, 10);
     const { rowCount } = await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, id]);
     if (rowCount === 0) {
-        res.status(404).json({ error: 'User not found' });
+        sendError(res, 404, 'NOT_FOUND', 'Usuario no encontrado.');
         return;
     }
     res.json({ success: true });
@@ -77,13 +93,22 @@ router.put('/users/:id/password', authMiddleware, async (req: AuthRequest, res: 
 
 router.post('/login', async (req: Request, res: Response) => {
     const parsed = LoginSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Credenciales no validas.', parsed.error.flatten());
+        return;
+    }
     const { username, password } = parsed.data;
     const { rows } = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
-    if (!rows.length) { res.status(401).json({ error: 'Invalid credentials' }); return; }
+    if (!rows.length) {
+        sendError(res, 401, 'UNAUTHORIZED', 'Credenciales invalidas.');
+        return;
+    }
     const user = rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) { res.status(401).json({ error: 'Invalid credentials' }); return; }
+    if (!valid) {
+        sendError(res, 401, 'UNAUTHORIZED', 'Credenciales invalidas.');
+        return;
+    }
 
     const membership = await pool.query(
         'SELECT household_id FROM memberships WHERE user_id=$1 LIMIT 1', [user.id]
@@ -92,8 +117,8 @@ router.post('/login', async (req: Request, res: Response) => {
 
     const token = jwt.sign(
         { id: user.id, username: user.username, name: user.name, color: user.color, householdId },
-        JWT_SECRET,
-        { expiresIn: '7d' }
+        getJwtSecret(),
+        { expiresIn: AUTH_TOKEN_TTL }
     );
     res.json({ token, user: { id: user.id, name: user.name, username: user.username, is_admin: user.is_admin, color: user.color, householdId } });
 });
@@ -101,30 +126,60 @@ router.post('/login', async (req: Request, res: Response) => {
 router.post('/register-first-admin', async (req: Request, res: Response) => {
     const { rows: existingUsers } = await pool.query('SELECT 1 FROM users LIMIT 1');
     if (existingUsers.length > 0) {
-        res.status(403).json({ error: 'Initial admin bootstrap is no longer available' });
+        sendError(res, 403, 'FORBIDDEN', 'El bootstrap inicial de admin ya no esta disponible.');
         return;
     }
 
     const parsed = RegisterSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Los datos del usuario no son validos.', parsed.error.flatten());
+        return;
+    }
     const { name, username, password } = parsed.data;
     const hash = await bcrypt.hash(password, 10);
 
     try {
-        const result = await pool.query(
-            'INSERT INTO users (name, username, password_hash, is_admin) VALUES ($1,$2,$3,$4) RETURNING id, name, username, is_admin, color',
-            [name, username, hash, true]
-        );
-        res.status(201).json({ user: result.rows[0] });
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            const userResult = await client.query(
+                'INSERT INTO users (name, username, password_hash, is_admin) VALUES ($1,$2,$3,$4) RETURNING id, name, username, is_admin, color',
+                [name, username, hash, true]
+            );
+            const createdUser = userResult.rows[0];
+            const householdResult = await client.query(
+                'INSERT INTO households (name) VALUES ($1) RETURNING id',
+                [`Hogar de ${name}`]
+            );
+            const householdId = householdResult.rows[0].id;
+            await client.query(
+                `INSERT INTO memberships (user_id, household_id, role)
+                 VALUES ($1, $2, 'admin')`,
+                [createdUser.id, householdId]
+            );
+            await client.query('COMMIT');
+            res.status(201).json({ user: { ...createdUser, householdId } });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
     } catch (err: any) {
-        if (err.code === '23505') { res.status(409).json({ error: 'Username already registered' }); return; }
+        if (err.code === '23505') {
+            sendError(res, 409, 'CONFLICT', 'Ese nombre de usuario ya existe.');
+            return;
+        }
         throw err;
     }
 });
 
 router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
     const { rows } = await pool.query('SELECT id, name, username, is_admin, color FROM users WHERE id=$1', [req.user!.id]);
-    if (!rows.length) { res.status(404).json({ error: 'User not found' }); return; }
+    if (!rows.length) {
+        sendError(res, 404, 'NOT_FOUND', 'Usuario no encontrado.');
+        return;
+    }
     const membership = await pool.query(
         'SELECT household_id FROM memberships WHERE user_id=$1 LIMIT 1', [req.user!.id]
     );

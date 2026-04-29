@@ -1,4 +1,10 @@
 import pool from '../db/pool';
+import {
+  parsedRecipeSchema,
+  recipeCommandResultSchema,
+  voiceRecipesResultSchema,
+  voiceShoppingResultSchema,
+} from '../contracts/voice';
 
 export interface ParsedIngredient {
   name: string;
@@ -51,11 +57,49 @@ export interface RecipeCommandResult {
   modifiedRecipe?: ParsedRecipe | null;
 }
 
+export interface DailySummaryInput {
+  dateLabel: string;
+  events: Array<{ title: string; time: string; assignedTo?: string | null }>;
+  chores: Array<{ title: string; status: string; assignedTo?: string | null }>;
+  meals: string[];
+  mealDetails: Array<{ mealType: string; value: string }>;
+  overdueTasks: Array<{ title: string; project: string }>;
+  shoppingPendingCount: number;
+  shoppingItems: Array<{ name: string; listName?: string | null; quantity?: number | null; unit?: string | null }>;
+  attentionItems: Array<{ title: string; hint: string }>;
+}
+
 const OPENROUTER_API_URL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-3.5-turbo';
 
+function extractJsonObject(resultText: string) {
+  const startIndex = resultText.indexOf('{');
+  const endIndex = resultText.lastIndexOf('}');
+  if (startIndex === -1 || endIndex === -1) {
+    throw new Error('No JSON object found in response');
+  }
+  return resultText.substring(startIndex, endIndex + 1);
+}
+
+function parseStructuredResponse<T>(
+  resultText: string,
+  context: string,
+  parser: (value: unknown) => T
+) {
+  try {
+    return parser(JSON.parse(extractJsonObject(resultText)));
+  } catch (_error) {
+    console.error(`Failed to parse LLM response for ${context}`);
+    throw new Error('Invalid JSON response from LLM');
+  }
+}
+
 export class OpenRouterService {
+  static isConfigured() {
+    return Boolean(OPENROUTER_API_KEY);
+  }
+
   static async parseRecipe(content: string): Promise<ParsedRecipe> {
     if (!OPENROUTER_API_KEY) {
       throw new Error('OPENROUTER_API_KEY is not configured');
@@ -121,18 +165,11 @@ ${content}`;
     const data = await response.json() as any;
     let resultText = data.choices[0].message.content;
 
-    try {
-      const startIndex = resultText.indexOf('{');
-      const endIndex = resultText.lastIndexOf('}');
-      if (startIndex === -1 || endIndex === -1) {
-        throw new Error('No JSON object found in response');
-      }
-      const jsonStr = resultText.substring(startIndex, endIndex + 1);
-      return JSON.parse(jsonStr) as ParsedRecipe;
-    } catch (e) {
-      console.error('Failed to parse LLM response as JSON. Response:', resultText);
-      throw new Error('Invalid JSON response from LLM');
-    }
+    return parseStructuredResponse(
+      resultText,
+      'recipe extraction',
+      (value) => parsedRecipeSchema.parse(value) as ParsedRecipe
+    );
   }
 
   static async parseVoiceShopping(transcript: string): Promise<VoiceShoppingResult> {
@@ -185,18 +222,11 @@ Ejemplos:
     const data = await response.json() as any;
     let resultText = data.choices[0].message.content;
 
-    try {
-      const startIndex = resultText.indexOf('{');
-      const endIndex = resultText.lastIndexOf('}');
-      if (startIndex === -1 || endIndex === -1) {
-        throw new Error('No JSON object found in response');
-      }
-      const jsonStr = resultText.substring(startIndex, endIndex + 1);
-      return JSON.parse(jsonStr) as VoiceShoppingResult;
-    } catch (e) {
-      console.error('Failed to parse LLM response as JSON. Response:', resultText);
-      throw new Error('Invalid JSON response from LLM');
-    }
+    return parseStructuredResponse(
+      resultText,
+      'voice shopping',
+      (value) => voiceShoppingResultSchema.parse(value) as VoiceShoppingResult
+    );
   }
 
   static async parseVoiceRecipes(
@@ -263,18 +293,11 @@ Devuelve SOLO JSON:
     const data = await response.json() as any;
     let resultText = data.choices[0].message.content;
 
-    try {
-      const startIndex = resultText.indexOf('{');
-      const endIndex = resultText.lastIndexOf('}');
-      if (startIndex === -1 || endIndex === -1) {
-        throw new Error('No JSON object found in response');
-      }
-      const jsonStr = resultText.substring(startIndex, endIndex + 1);
-      return JSON.parse(jsonStr) as VoiceRecipesResult;
-    } catch (e) {
-      console.error('Failed to parse LLM response as JSON. Response:', resultText);
-      throw new Error('Invalid JSON response from LLM');
-    }
+    return parseStructuredResponse(
+      resultText,
+      'voice recipes',
+      (value) => voiceRecipesResultSchema.parse(value) as VoiceRecipesResult
+    );
   }
 
   static async enrichRecipe(title: string, ingredients: string[], instructions: string): Promise<ParsedRecipe> {
@@ -345,18 +368,11 @@ Instrucciones: ${instructions}`;
     const data = await response.json() as any;
     let resultText = data.choices[0].message.content;
 
-    try {
-      const startIndex = resultText.indexOf('{');
-      const endIndex = resultText.lastIndexOf('}');
-      if (startIndex === -1 || endIndex === -1) {
-        throw new Error('No JSON object found in response');
-      }
-      const jsonStr = resultText.substring(startIndex, endIndex + 1);
-      return JSON.parse(jsonStr) as ParsedRecipe;
-    } catch (e) {
-      console.error('Failed to parse LLM response as JSON. Response:', resultText);
-      throw new Error('Invalid JSON response from LLM');
-    }
+    return parseStructuredResponse(
+      resultText,
+      'recipe enrichment',
+      (value) => parsedRecipeSchema.parse(value) as ParsedRecipe
+    );
   }
 
   static async calculateMacros(title: string, ingredients: string[], servings: number): Promise<{ caloriesPerServing: number | null, proteinPerServing: number | null, carbsPerServing: number | null, fatPerServing: number | null }> {
@@ -418,15 +434,12 @@ Genera el JSON con el valor exacto por 1 ración.`;
     let resultText = data.choices[0].message.content;
 
     try {
-      const startIndex = resultText.indexOf('{');
-      const endIndex = resultText.lastIndexOf('}');
-      if (startIndex === -1 || endIndex === -1) {
-        throw new Error('No JSON object found in response');
-      }
-      const jsonStr = resultText.substring(startIndex, endIndex + 1);
-      return JSON.parse(jsonStr);
-    } catch (e) {
-      console.error('Failed to parse LLM response for macros as JSON. Response:', resultText);
+      return parseStructuredResponse(
+        resultText,
+        'recipe macros',
+        (value) => value as { caloriesPerServing: number | null, proteinPerServing: number | null, carbsPerServing: number | null, fatPerServing: number | null }
+      );
+    } catch (_e) {
       return { caloriesPerServing: null, proteinPerServing: null, carbsPerServing: null, fatPerServing: null };
     }
   }
@@ -501,17 +514,80 @@ Si no hay cambio explícito solicitado, "modifiedRecipe" DEBE ser null.`;
     const data = await response.json() as any;
     let resultText = data.choices[0].message.content;
 
+    return parseStructuredResponse(
+      resultText,
+      'recipe command',
+      (value) => recipeCommandResultSchema.parse(value) as RecipeCommandResult
+    );
+  }
+
+  static async generateDailySummary(input: DailySummaryInput): Promise<string> {
+    if (!OPENROUTER_API_KEY) {
+      throw new Error('OPENROUTER_API_KEY is not configured');
+    }
+
+    const systemMessage = `Eres un asistente doméstico que resume el día de una casa compartida.
+Escribe en español natural, concreto, útil y accionable.
+Reglas:
+- 3 o 4 frases como máximo.
+- Da detalles reales: títulos, horas, comidas o artículos concretos cuando existan.
+- Prioriza primero lo que requiere atención hoy.
+- Si hay eventos, cita al menos el más importante con su hora.
+- Si hay compra pendiente, menciona ejemplos de artículos concretos, no solo el número total.
+- Si hay comidas planificadas, di cuáles.
+- Si algo está vacío, no lo menciones.
+- No uses tono marketiniano.
+- No inventes datos.
+Devuelve solo texto plano.`;
+
+    const userMessage = `Resume esta jornada doméstica:
+Fecha: ${input.dateLabel}
+Eventos: ${input.events.length ? input.events.map((e) => `${e.time} ${e.title}${e.assignedTo ? ` (${e.assignedTo})` : ''}`).join('; ') : 'ninguno'}
+Tareas del hogar: ${input.chores.length ? input.chores.map((c) => `${c.title} [${c.status}]${c.assignedTo ? ` (${c.assignedTo})` : ''}`).join('; ') : 'ninguna'}
+Comidas previstas: ${input.mealDetails.length ? input.mealDetails.map((m) => `${m.mealType}: ${m.value}`).join('; ') : 'ninguna'}
+Tareas atrasadas de proyectos: ${input.overdueTasks.length ? input.overdueTasks.map((t) => `${t.title} (${t.project})`).join('; ') : 'ninguna'}
+Artículos pendientes en compra: ${input.shoppingPendingCount}
+Ejemplos de compra pendiente: ${input.shoppingItems.length ? input.shoppingItems.map((item) => `${item.name}${item.quantity ? ` (${item.quantity}${item.unit ? ` ${item.unit}` : ''})` : ''}${item.listName ? ` en ${item.listName}` : ''}`).join('; ') : 'ninguno'}
+Puntos que requieren atención: ${input.attentionItems.length ? input.attentionItems.map((item) => `${item.title}: ${item.hint}`).join('; ') : 'ninguno'}
+`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 9000);
+
     try {
-      const startIndex = resultText.indexOf('{');
-      const endIndex = resultText.lastIndexOf('}');
-      if (startIndex === -1 || endIndex === -1) {
-        throw new Error('No JSON object found in response');
+      const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://laris-home.local',
+          'X-Title': 'Laris Home'
+        },
+        body: JSON.stringify({
+          model: OPENROUTER_MODEL,
+          messages: [
+            { role: 'system', content: systemMessage },
+            { role: 'user', content: userMessage }
+          ],
+          temperature: 0.2
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
       }
-      const jsonStr = resultText.substring(startIndex, endIndex + 1);
-      return JSON.parse(jsonStr) as RecipeCommandResult;
-    } catch (e) {
-      console.error('Failed to parse LLM response for recipe command as JSON. Response:', resultText);
-      throw new Error('Invalid JSON response from LLM');
+
+      const data = await response.json() as any;
+      return String(data.choices?.[0]?.message?.content || '').trim();
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        throw new Error('OpenRouter summary timeout');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 }

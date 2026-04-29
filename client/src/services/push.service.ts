@@ -1,3 +1,6 @@
+import { api } from '../api';
+import { useAuthStore } from '../store/auth';
+
 /**
  * Converts a base64 string to a Uint8Array.
  * Needed for web-push subscription.
@@ -20,32 +23,20 @@ export function urlBase64ToUint8Array(base64String: string) {
  */
 export async function subscribeUserToPush() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    console.warn('Push messaging is not supported');
     return;
   }
 
   try {
     const registration = await navigator.serviceWorker.ready;
-
-    // Get token from Zustand persistent store
-    const authData = localStorage.getItem('laris-home-auth');
-    const token = authData ? JSON.parse(authData).state?.token : null;
+    const token = useAuthStore.getState().token;
 
     if (!token) {
-        console.warn('No auth token found, cannot subscribe to push');
         return;
     }
 
-    // Get VAPID public key from server
-    const keyResponse = await fetch('/api/push/vapid-public-key', {
-        headers: {
-            'Authorization': `Bearer ${token}`
-        }
-    });
-    const { publicKey } = await keyResponse.json();
+    const { publicKey } = await api.push.getVapidPublicKey();
 
     if (!publicKey) {
-      console.warn('No VAPID public key found');
       return;
     }
 
@@ -54,17 +45,7 @@ export async function subscribeUserToPush() {
       applicationServerKey: urlBase64ToUint8Array(publicKey)
     });
 
-    // Send subscription to backend
-    await fetch('/api/push/subscribe', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ subscription })
-    });
-
-    console.log('User is subscribed to push notifications');
+    await api.push.subscribe(subscription);
   } catch (error) {
     console.error('Failed to subscribe user:', error);
   }

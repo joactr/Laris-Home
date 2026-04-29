@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { api } from '../../api/client';
+import { useNavigate } from 'react-router-dom';
+import { api } from '../../api';
 import { useAuthStore } from '../../store/auth';
 import { t } from '../../i18n';
 

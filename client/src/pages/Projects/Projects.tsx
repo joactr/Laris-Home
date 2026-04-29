@@ -20,14 +20,34 @@ import {
     sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { api } from '../../api/client';
+import { api } from '../../api';
 import { t } from '../../i18n';
 import ConfirmModal from '../../components/ConfirmModal';
+import { toastError } from '../../store/toast';
+import type {
+    AuthUser,
+    ProjectInput,
+    ProjectSummary,
+    ProjectTask,
+    ProjectTaskInput,
+    ProjectTaskPriority,
+    ProjectTaskStatus,
+} from '../../../../shared/contracts';
+
+type ProjectFormState = Pick<ProjectInput, 'name' | 'description'>;
+type TaskFormState = {
+    title: string;
+    description: string;
+    priority: ProjectTaskPriority;
+    status: ProjectTaskStatus;
+    assigned_user_id: string;
+    due_date: string;
+};
 
 function ProjectList() {
-    const [projects, setProjects] = useState<any[]>([]);
+    const [projects, setProjects] = useState<ProjectSummary[]>([]);
     const [showModal, setShowModal] = useState(false);
-    const [form, setForm] = useState({ name: '', description: '' });
+    const [form, setForm] = useState<ProjectFormState>({ name: '', description: '' });
     const navigate = useNavigate();
     
     // Modal state
@@ -133,9 +153,9 @@ function ProjectList() {
     );
 }
 
-const STATUSES = ['todo', 'inProgress', 'done'] as const;
+const STATUSES: ProjectTaskStatus[] = ['todo', 'inProgress', 'done'];
 
-function TaskCard({ task, onClick, isOverlay, style }: { task: any, onClick?: () => void, isOverlay?: boolean, style?: React.CSSProperties }) {
+function TaskCard({ task, onClick, isOverlay, style }: { task: ProjectTask | undefined, onClick?: () => void, isOverlay?: boolean, style?: React.CSSProperties }) {
     if (!task) return null;
     return (
         <div
@@ -147,7 +167,7 @@ function TaskCard({ task, onClick, isOverlay, style }: { task: any, onClick?: ()
             <div className="task-meta">
                 <span className={`priority-badge priority-${task.priority}`}>{t(`projects.${task.priority}`)}</span>
                 {task.assigned_name && (
-                    <span className="avatar" style={{ background: task.assigned_color }} title={task.assigned_name}>{task.assigned_name[0]}</span>
+                    <span className="avatar" style={{ background: task.assigned_color || undefined }} title={task.assigned_name}>{task.assigned_name[0]}</span>
                 )}
                 {task.due_date && <span>📅 {task.due_date.slice(0, 10)}</span>}
             </div>
@@ -155,7 +175,7 @@ function TaskCard({ task, onClick, isOverlay, style }: { task: any, onClick?: ()
     );
 }
 
-function SortableTask({ task, onClick }: { task: any, onClick: () => void }) {
+function SortableTask({ task, onClick }: { task: ProjectTask, onClick: () => void }) {
     const {
         attributes,
         listeners,
@@ -200,12 +220,12 @@ function DroppableColumn({ status, children }: { status: string, children: React
 function ProjectBoard() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
-    const [tasks, setTasks] = useState<any[]>([]);
-    const [members, setMembers] = useState<any[]>([]);
+    const [tasks, setTasks] = useState<ProjectTask[]>([]);
+    const [members, setMembers] = useState<AuthUser[]>([]);
     const [showModal, setShowModal] = useState(false);
-    const [editTask, setEditTask] = useState<any>(null);
+    const [editTask, setEditTask] = useState<ProjectTask | null>(null);
     const [activeId, setActiveId] = useState<string | null>(null);
-    const [form, setForm] = useState({ title: '', description: '', priority: 'medium', status: 'todo', assigned_user_id: '', due_date: '' });
+    const [form, setForm] = useState<TaskFormState>({ title: '', description: '', priority: 'medium', status: 'todo', assigned_user_id: '', due_date: '' });
     
     // Modal state
     const [confirmDeleteTaskId, setConfirmDeleteTaskId] = useState<string | null>(null);
@@ -234,29 +254,35 @@ function ProjectBoard() {
         const activeTask = tasks.find(t => t.id === active.id);
         const overId = over.id.toString();
 
-        let newStatus: typeof STATUSES[number] | null = null;
-        if (STATUSES.includes(overId as any)) {
-            newStatus = overId as any;
+        let newStatus: ProjectTaskStatus | null = null;
+        if (STATUSES.includes(overId as ProjectTaskStatus)) {
+            newStatus = overId as ProjectTaskStatus;
         } else {
             const overTask = tasks.find(t => t.id === over.id);
             if (overTask) newStatus = overTask.status;
         }
 
         if (activeTask && newStatus && activeTask.status !== newStatus) {
-            // Optimistic update
+            const previousTasks = tasks;
             setTasks(prev => prev.map(t => t.id === activeTask.id ? { ...t, status: newStatus } : t));
-            await api.projects.updateTask(activeTask.id, { status: newStatus });
-            load(); // Re-sync with server
+
+            try {
+                const updatedTask = await api.projects.updateTask(activeTask.id, { status: newStatus });
+                setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...t, ...updatedTask } : t));
+            } catch (error: any) {
+                setTasks(previousTasks);
+                toastError('No se pudo mover la tarea', error?.message || 'Vuelve a intentarlo.');
+            }
         }
     };
 
-    const openCreate = (status = 'todo') => {
+    const openCreate = (status: ProjectTaskStatus = 'todo') => {
         setEditTask(null);
         setForm({ title: '', description: '', priority: 'medium', status, assigned_user_id: '', due_date: '' });
         setShowModal(true);
     };
 
-    const openEdit = (task: any) => {
+    const openEdit = (task: ProjectTask) => {
         setEditTask(task);
         setForm({ title: task.title, description: task.description || '', priority: task.priority, status: task.status, assigned_user_id: task.assigned_user_id || '', due_date: (task.due_date || '').slice(0, 10) });
         setShowModal(true);
@@ -264,7 +290,11 @@ function ProjectBoard() {
 
     const save = async () => {
         if (!form.title.trim()) return;
-        const payload = { ...form, assigned_user_id: form.assigned_user_id || null, due_date: form.due_date || null };
+        const payload: ProjectTaskInput = {
+            ...form,
+            assigned_user_id: form.assigned_user_id || null,
+            due_date: form.due_date || null,
+        };
         if (editTask) { await api.projects.updateTask(editTask.id, payload); }
         else { await api.projects.createTask(id!, payload); }
         setShowModal(false); load();
@@ -359,10 +389,10 @@ function ProjectBoard() {
                                 <label className="label" htmlFor="task-title">{t('common.title')}</label>
                                 <input id="task-title" className="input" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} autoFocus />
                             </div>
-                            <div className="form-group field-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div className="form-group field-grid two">
                                 <div>
                                     <label className="label">{t('projects.status')}</label>
-                                    <select className="input" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+                                    <select className="input" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as ProjectTaskStatus }))}>
                                         {STATUSES.map(s => (
                                             <option key={s} value={s}>
                                                 {s === 'todo' ? t('projects.statusTodo') : s === 'inProgress' ? t('projects.statusInProgress') : t('projects.statusDone')}
@@ -372,14 +402,14 @@ function ProjectBoard() {
                                 </div>
                                 <div>
                                     <label className="label">{t('projects.priority')}</label>
-                                    <select className="input" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>
+                                    <select className="input" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value as ProjectTaskPriority }))}>
                                         <option value="low">{t('projects.low')}</option>
                                         <option value="medium">{t('projects.medium')}</option>
                                         <option value="high">{t('projects.high')}</option>
                                     </select>
                                 </div>
                             </div>
-                            <div className="form-group field-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div className="form-group field-grid two">
                                 <div>
                                     <label className="label">{t('chores.assignTo')}</label>
                                     <select className="input" value={form.assigned_user_id} onChange={e => setForm(f => ({ ...f, assigned_user_id: e.target.value }))}>
@@ -403,7 +433,7 @@ function ProjectBoard() {
                                     {t('common.delete')}
                                 </button>
                             )}
-                            <div style={{ flex: 1 }} />
+                            <div className="modal-actions-spacer" />
                             <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>{t('common.cancel')}</button>
                             <button id="task-save" className="btn btn-primary" onClick={save}>{t('common.save')}</button>
                         </div>

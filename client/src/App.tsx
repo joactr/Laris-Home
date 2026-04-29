@@ -1,45 +1,52 @@
-import { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Suspense, lazy, useEffect } from 'react';
+import {
+    BrowserRouter,
+    Navigate,
+    Outlet,
+    Route,
+    Routes,
+    useNavigate,
+} from 'react-router-dom';
 import { useAuthStore } from './store/auth';
-import { initializeClientDataLayer, refreshOfflineDataState } from './api/client';
+import { api, initializeClientDataLayer, refreshOfflineDataState } from './api';
 import { requestNotificationPermission, subscribeUserToPush } from './services/push.service';
 import Layout from './components/Layout';
-import AuthPage from './pages/Auth/AuthPage';
-import Dashboard from './pages/Dashboard/Dashboard';
-import Shopping from './pages/Shopping/Shopping';
-import Calendar from './pages/Calendar/Calendar';
-import Chores from './pages/Chores/Chores';
-import Meals from './pages/Meals/Meals';
-import Recipes from './pages/Recipes/Recipes';
-import RecipeDetail from './pages/Recipes/RecipeDetail';
-import RecipeImportPage from './pages/Recipes/RecipeImportPage';
-import RecipeEditPage from './pages/Recipes/RecipeEditPage';
-import Projects from './pages/Projects/Projects';
-import AdminUsersPage from './pages/Admin/AdminUsersPage';
 
-function PrivateRoute({ children }: { children: React.ReactNode }) {
-    const token = useAuthStore((s) => s.token);
-    return token ? <>{children}</> : <Navigate to="/login" replace />;
+const AuthPage = lazy(() => import('./pages/Auth/AuthPage'));
+const Dashboard = lazy(() => import('./pages/Dashboard/Dashboard'));
+const Shopping = lazy(() => import('./pages/Shopping/Shopping'));
+const Calendar = lazy(() => import('./pages/Calendar/Calendar'));
+const Meals = lazy(() => import('./pages/Meals/Meals'));
+const Recipes = lazy(() => import('./pages/Recipes/Recipes'));
+const RecipeDetail = lazy(() => import('./pages/Recipes/RecipeDetail'));
+const RecipeImportPage = lazy(() => import('./pages/Recipes/RecipeImportPage'));
+const RecipeEditPage = lazy(() => import('./pages/Recipes/RecipeEditPage'));
+const Projects = lazy(() => import('./pages/Projects/Projects'));
+const AdminUsersPage = lazy(() => import('./pages/Admin/AdminUsersPage'));
+
+function RouteFallback() {
+    return <div className="page-container" />;
 }
 
-async function validateToken(token: string): Promise<boolean> {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        return true;
+function PrivateLayout() {
+    const token = useAuthStore((state) => state.token);
+
+    if (!token) {
+        return <Navigate to="/login" replace />;
     }
-    try {
-        const res = await fetch('/api/auth/me', {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        return res.ok;
-    } catch {
-        return false;
-    }
+
+    return (
+        <Layout>
+            <Suspense fallback={<RouteFallback />}>
+                <Outlet />
+            </Suspense>
+        </Layout>
+    );
 }
 
-function AppContent() {
-    const token = useAuthStore((s) => s.token);
-    const logout = useAuthStore((s) => s.logout);
-    const [validating, setValidating] = useState(true);
+function AppShell() {
+    const token = useAuthStore((state) => state.token);
+    const logout = useAuthStore((state) => state.logout);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -48,16 +55,19 @@ function AppContent() {
 
     useEffect(() => {
         const initAuth = async () => {
-            if (token) {
-                const isValid = await validateToken(token);
-                if (!isValid) {
-                    logout();
-                    navigate('/login', { replace: true });
-                }
+            if (!token) {
+                return;
             }
-            setValidating(false);
+
+            try {
+                await api.auth.validateToken();
+            } catch {
+                logout();
+                navigate('/login', { replace: true });
+            }
         };
-        initAuth();
+
+        void initAuth();
     }, [token, logout, navigate]);
 
     useEffect(() => {
@@ -70,55 +80,40 @@ function AppContent() {
         const initPush = async () => {
             try {
                 const granted = await requestNotificationPermission();
-                const authData = localStorage.getItem('laris-home-auth');
-                let hasToken = null;
-                if (authData) {
-                    try {
-                        hasToken = JSON.parse(authData).state?.token;
-                    } catch (e) {
-                        console.error('Error parsing authData:', e);
-                    }
-                }
-
-                if (granted && hasToken) {
+                if (granted && token) {
                     await subscribeUserToPush();
                 }
-            } catch (err) {
-                console.error('Push initialization error:', err);
+            } catch (error) {
+                console.error('Push initialization error:', error);
             }
         };
-        initPush();
-    }, [token]);
 
-    if (validating) {
-        return null;
-    }
+        void initPush();
+    }, [token]);
 
     return (
         <Routes>
-            <Route path="/login" element={token ? <Navigate to="/" replace /> : <AuthPage />} />
             <Route
-                path="/*"
-                element={
-                    <PrivateRoute>
-                        <Layout>
-                            <Routes>
-                                <Route path="/" element={<Dashboard />} />
-                                <Route path="/shopping" element={<Shopping />} />
-                                <Route path="/calendar" element={<Calendar />} />
-                                <Route path="/chores" element={<Chores />} />
-                                <Route path="/meals" element={<Meals />} />
-                                <Route path="/recipes" element={<Recipes />} />
-                                <Route path="/recipes/import" element={<RecipeImportPage />} />
-                                <Route path="/recipes/:id" element={<RecipeDetail />} />
-                                <Route path="/recipes/:id/edit" element={<RecipeEditPage />} />
-                                <Route path="/projects/*" element={<Projects />} />
-                                <Route path="/admin" element={<AdminUsersPage />} />
-                            </Routes>
-                        </Layout>
-                    </PrivateRoute>
-                }
+                path="/login"
+                element={token ? <Navigate to="/" replace /> : (
+                    <Suspense fallback={<RouteFallback />}>
+                        <AuthPage />
+                    </Suspense>
+                )}
             />
+            <Route element={<PrivateLayout />}>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/shopping" element={<Shopping />} />
+                <Route path="/calendar" element={<Calendar />} />
+                <Route path="/chores" element={<Navigate to="/calendar" replace />} />
+                <Route path="/meals" element={<Meals />} />
+                <Route path="/recipes" element={<Recipes />} />
+                <Route path="/recipes/import" element={<RecipeImportPage />} />
+                <Route path="/recipes/:id" element={<RecipeDetail />} />
+                <Route path="/recipes/:id/edit" element={<RecipeEditPage />} />
+                <Route path="/projects/*" element={<Projects />} />
+                <Route path="/admin" element={<AdminUsersPage />} />
+            </Route>
         </Routes>
     );
 }
@@ -126,7 +121,7 @@ function AppContent() {
 export default function App() {
     return (
         <BrowserRouter>
-            <AppContent />
+            <AppShell />
         </BrowserRouter>
     );
 }

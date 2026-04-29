@@ -1,0 +1,1 @@
+export { mealsApi } from './client';
