@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { useOfflineStore } from '../store/offline';
@@ -8,6 +8,7 @@ import BottomNav from './BottomNav';
 import VoiceAssistantUI from './VoiceAssistantUI';
 import { APP_NAV_ITEMS } from './navigation';
 import ToastViewport from './ToastViewport';
+import { api } from '../api';
 
 function isActivePath(currentPath: string, path: string) {
   return path === '/' ? currentPath === '/' : currentPath.startsWith(path);
@@ -19,6 +20,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const logout = useAuthStore((s) => s.logout);
   const isOffline = useOfflineStore((s) => s.isOffline);
   const pendingCount = useOfflineStore((s) => s.pendingCount);
+  const [syncFailures, setSyncFailures] = useState<Awaited<ReturnType<typeof api.offline.listFailures>> | null>(null);
 
   const activeItem = useMemo(
     () => APP_NAV_ITEMS.find((item) => isActivePath(location.pathname, item.path)),
@@ -26,6 +28,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   );
 
   const currentTitle = activeItem ? t(activeItem.label) : location.pathname.startsWith('/admin') ? 'Admin' : 'Laris Home';
+  const failedSyncEntries = syncFailures
+    ? [
+      ...syncFailures.shopping.map((entry: any) => ({ kind: 'shopping' as const, entry })),
+      ...syncFailures.mutations.map((entry: any) => ({ kind: 'mutation' as const, entry })),
+    ]
+    : [];
+  const openSyncFailures = async () => {
+    setSyncFailures(await api.offline.listFailures());
+  };
 
   return (
     <div className="app-shell">
@@ -86,14 +97,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <TopBar title={currentTitle} />
 
         {(isOffline || pendingCount > 0) && (
-          <div className="sync-banner">
+          <button type="button" className="sync-banner sync-banner-button" onClick={openSyncFailures}>
             <span className={`status-dot ${isOffline ? 'offline' : 'syncing'}`} />
             <span>
               {isOffline
                 ? 'Trabajando sin conexión. Los cambios se guardarán para sincronizar después.'
                 : `${pendingCount} cambio${pendingCount === 1 ? '' : 's'} pendiente${pendingCount === 1 ? '' : 's'} sincronizándose`}
             </span>
-          </div>
+          </button>
         )}
 
         <main className="page-container">{children}</main>
@@ -102,6 +113,42 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <BottomNav />
       <VoiceAssistantUI />
       <ToastViewport />
+      {syncFailures ? (
+        <div className="modal-overlay" onClick={() => setSyncFailures(null)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">Sincronización</span>
+              <button className="modal-close touch-target" onClick={() => setSyncFailures(null)} aria-label={t('common.close')}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              {failedSyncEntries.length === 0 ? (
+                <p className="empty-state compact">No hay errores de sincronización pendientes.</p>
+              ) : (
+                <div className="modal-stack">
+                  {failedSyncEntries.map(({ kind, entry }) => (
+                    <div key={entry.id} className="list-row">
+                      <div>
+                        <strong>{kind === 'shopping' ? 'Compra' : entry.resource}</strong>
+                        <p>{entry.lastError || 'No se pudo sincronizar este cambio.'}</p>
+                      </div>
+                      <div className="surface-actions">
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => void api.offline.retry(kind, entry.id).then(openSyncFailures)}>
+                          Reintentar
+                        </button>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void api.offline.discard(kind, entry.id).then(openSyncFailures)}>
+                          Descartar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

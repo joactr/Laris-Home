@@ -26,6 +26,12 @@ export default function Shopping() {
   const [confirmDeleteList, setConfirmDeleteList] = useState<string | null>(null);
   const [voiceTranscript, setVoiceTranscript] = useState('');
   const [voiceFallback, setVoiceFallback] = useState<{ message: string; transcript: string } | null>(null);
+  const [duplicatePrompt, setDuplicatePrompt] = useState<{
+    source: Record<string, unknown>;
+    normalized: any;
+    candidate: any;
+  } | null>(null);
+  const [buyAgain, setBuyAgain] = useState<any[]>([]);
   const isOffline = useOfflineStore((s) => s.isOffline);
   const pendingCount = useOfflineStore((s) => s.pendingCount);
 
@@ -39,9 +45,13 @@ export default function Shopping() {
 
   const loadItems = useCallback(async () => {
     if (!activeListId) return;
-    const nextItems = await api.shopping.getItems(activeListId);
+    const [nextItems, suggestions] = await Promise.all([
+      api.shopping.getItems(activeListId),
+      isOffline ? Promise.resolve([]) : api.shopping.getBuyAgain(activeListId).catch(() => []),
+    ]);
     setItems(nextItems);
-  }, [activeListId]);
+    setBuyAgain(suggestions);
+  }, [activeListId, isOffline]);
 
   useEffect(() => {
     loadLists().finally(() => setLoading(false));
@@ -53,16 +63,27 @@ export default function Shopping() {
     }
   }, [activeListId, loadItems]);
 
+  const addSmartItem = async (data: Record<string, unknown>) => {
+    if (!activeListId || !String(data.name || '').trim()) return;
+    if (!isOffline) {
+      const preview = await api.shopping.previewItem(activeListId, data);
+      if (preview.candidates.length) {
+        setDuplicatePrompt({ source: data, normalized: preview.item, candidate: preview.candidates[0] });
+        return;
+      }
+    }
+    await api.shopping.addItem(activeListId, data);
+    await loadItems();
+  };
+
   const addItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newItem.trim()) return;
-    await api.shopping.addItem(activeListId, {
+    await addSmartItem({
       name: newItem.trim(),
       quantity: newQty ? parseFloat(newQty) : undefined,
     });
     setNewItem('');
     setNewQty('');
-    await loadItems();
   };
 
   const toggle = async (id: string) => {
@@ -225,6 +246,26 @@ export default function Shopping() {
       </Surface>
 
       <Surface title="Artículos" subtitle="Lista activa y sincronización">
+        {buyAgain.length > 0 ? (
+          <div className="suggestion-row">
+            <span>Comprar de nuevo:</span>
+            {buyAgain.slice(0, 5).map((suggestion) => (
+              <button
+                key={suggestion.normalized_name}
+                type="button"
+                className="chip"
+                onClick={() => void addSmartItem({
+                  name: suggestion.name,
+                  quantity: suggestion.quantity ? Number(suggestion.quantity) : undefined,
+                  unit: suggestion.unit || undefined,
+                  category: suggestion.category || undefined,
+                })}
+              >
+                {suggestion.name}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {filtered.length === 0 ? (
           <p className="empty-state compact">{t('shopping.noItems')}</p>
         ) : (
@@ -350,7 +391,7 @@ export default function Shopping() {
                   onClick={async () => {
                     setLoading(true);
                     for (const item of pendingItems) {
-                      await api.shopping.addItem(activeListId, { name: item.name, quantity: item.quantity });
+                      await addSmartItem({ name: item.name, quantity: item.quantity });
                     }
                     setPendingItems(null);
                     await loadItems();
@@ -358,6 +399,60 @@ export default function Shopping() {
                   }}
                 >
                   {t('shopping.confirmBtn')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {duplicatePrompt ? (
+        <div className="modal-overlay" onClick={() => setDuplicatePrompt(null)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">Artículo duplicado</span>
+              <button className="modal-close touch-target" onClick={() => setDuplicatePrompt(null)} aria-label={t('common.close')}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>
+                Ya tienes <strong>{duplicatePrompt.candidate.name}</strong> en la lista. ¿Quieres fusionarlo con{' '}
+                <strong>{duplicatePrompt.normalized.quantity || 1} {duplicatePrompt.normalized.unit || ''} {duplicatePrompt.normalized.name}</strong>?
+              </p>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={async () => {
+                    await api.shopping.addItem(activeListId, { ...duplicatePrompt.source, allowDuplicate: true });
+                    setDuplicatePrompt(null);
+                    await loadItems();
+                  }}
+                >
+                  Añadir aparte
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={async () => {
+                    await api.shopping.mergeItem(duplicatePrompt.candidate.id, duplicatePrompt.source, 'replace');
+                    setDuplicatePrompt(null);
+                    await loadItems();
+                  }}
+                >
+                  Reemplazar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    await api.shopping.mergeItem(duplicatePrompt.candidate.id, duplicatePrompt.source, 'merge');
+                    setDuplicatePrompt(null);
+                    await loadItems();
+                  }}
+                >
+                  Fusionar
                 </button>
               </div>
             </div>

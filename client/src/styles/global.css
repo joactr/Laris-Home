@@ -95,6 +95,36 @@ button {
   cursor: pointer;
 }
 
+.sync-banner-button {
+  width: 100%;
+  border: 0;
+  text-align: left;
+}
+
+.suggestion-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.chip {
+  border: 1px solid var(--surface-border);
+  border-radius: 999px;
+  background: var(--bg-ghost);
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
+.chip.active,
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: var(--accent-soft);
+}
+
 a {
   color: inherit;
   text-decoration: none;

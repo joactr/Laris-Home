@@ -1,7 +1,7 @@
 import { authApi } from './auth';
 import { calendarApi } from './calendar';
 import { dashboardApi } from './dashboard';
-import { choresApi, mealsApi, shoppingApi, voiceApi } from './client';
+import { choresApi, mealsApi, offlineApi, shoppingApi, voiceApi } from './client';
 import { projectsApi } from './projects';
 import { pushApi } from './push';
 import { recipesApi } from './recipes';
@@ -9,6 +9,7 @@ import { recipesApi } from './recipes';
 export {
     ApiClientError,
     initializeClientDataLayer,
+    offlineApi,
     refreshOfflineDataState,
 } from './client';
 
@@ -23,4 +24,5 @@ export const api = {
     recipes: recipesApi,
     shopping: shoppingApi,
     voice: voiceApi,
+    offline: offlineApi,
 };

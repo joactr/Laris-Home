@@ -4,6 +4,7 @@ import { api, ApiClientError } from '../api';
 interface VoiceAssistantState {
   isListening: boolean;
   transcript: string;
+  pendingTranscript: string;
   isProcessing: boolean;
   error: string | null;
 }
@@ -12,6 +13,7 @@ export function useVoiceAssistant() {
   const [state, setState] = useState<VoiceAssistantState>({
     isListening: false,
     transcript: '',
+    pendingTranscript: '',
     isProcessing: false,
     error: null,
   });
@@ -41,14 +43,15 @@ export function useVoiceAssistant() {
 
     try {
       const result = await api.voice.transcribe(blob);
-      setState((prev) => ({ ...prev, transcript: result.transcript }));
-      if (result.transcript.trim()) {
-        await Promise.resolve(onFinalTranscriptRef.current?.(result.transcript));
-      }
-      setState((prev) => ({ ...prev, isProcessing: false, transcript: '' }));
+      setState((prev) => ({
+        ...prev,
+        transcript: '',
+        pendingTranscript: result.transcript,
+        isProcessing: false,
+      }));
     } catch (error) {
       const message = error instanceof ApiClientError ? error.message : 'No se pudo transcribir el audio.';
-      setState((prev) => ({ ...prev, isProcessing: false, error: message, transcript: '' }));
+      setState((prev) => ({ ...prev, isProcessing: false, error: message, transcript: '', pendingTranscript: '' }));
     }
   }, []);
 
@@ -88,7 +91,7 @@ export function useVoiceAssistant() {
       });
 
       recorder.start();
-      setState({ isListening: true, transcript: '', isProcessing: false, error: null });
+      setState({ isListening: true, transcript: '', pendingTranscript: '', isProcessing: false, error: null });
     } catch (error: any) {
       const message = error?.name === 'NotAllowedError' || error?.name === 'NotFoundError'
         ? 'Activa el microfono en tu navegador'
@@ -108,9 +111,31 @@ export function useVoiceAssistant() {
     cleanupRecorder();
   }, [cleanupRecorder, stopTracks]);
 
+  const submitTranscript = useCallback(async (nextTranscript: string) => {
+    const cleaned = nextTranscript.trim();
+    if (!cleaned) {
+      setState((prev) => ({ ...prev, pendingTranscript: '' }));
+      return;
+    }
+    setState((prev) => ({ ...prev, isProcessing: true, pendingTranscript: cleaned, error: null }));
+    try {
+      await Promise.resolve(onFinalTranscriptRef.current?.(cleaned));
+      setState((prev) => ({ ...prev, isProcessing: false, pendingTranscript: '', transcript: '' }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo procesar la transcripcion.';
+      setState((prev) => ({ ...prev, isProcessing: false, error: message }));
+    }
+  }, []);
+
+  const clearPendingTranscript = useCallback(() => {
+    setState((prev) => ({ ...prev, pendingTranscript: '' }));
+  }, []);
+
   return {
     ...state,
     startListening,
     stopListening,
+    submitTranscript,
+    clearPendingTranscript,
   };
 }

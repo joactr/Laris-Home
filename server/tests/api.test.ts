@@ -267,6 +267,48 @@ describe('Shopping list endpoints', () => {
         expect(res.body.is_completed).toBe(false);
     });
 
+    it('previews duplicates, normalizes units, and merges quantities', async () => {
+        const first = await request(app)
+            .post(`/api/shopping/lists/${listId}/items`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ name: '1kg arroz' });
+        expect(first.status).toBe(201);
+        expect(first.body.name).toBe('arroz');
+        expect(Number(first.body.quantity)).toBe(1000);
+        expect(first.body.unit).toBe('g');
+
+        const preview = await request(app)
+            .post(`/api/shopping/lists/${listId}/items/preview`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ name: '500 g arroz' });
+        expect(preview.status).toBe(200);
+        expect(preview.body.candidates[0].id).toBe(first.body.id);
+
+        const merge = await request(app)
+            .post(`/api/shopping/items/${first.body.id}/merge`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ source: { name: '500 g arroz' }, mode: 'merge' });
+        expect(merge.status).toBe(200);
+        expect(Number(merge.body.quantity)).toBe(1500);
+        expect(merge.body.unit).toBe('g');
+    });
+
+    it('suggests completed items for buy again excluding active duplicates', async () => {
+        const completed = await request(app)
+            .post(`/api/shopping/lists/${listId}/items`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ name: 'Yogur', allowDuplicate: true });
+        await request(app)
+            .patch(`/api/shopping/items/${completed.body.id}/complete`)
+            .set('Authorization', `Bearer ${token}`);
+
+        const suggestions = await request(app)
+            .get(`/api/shopping/lists/${listId}/buy-again`)
+            .set('Authorization', `Bearer ${token}`);
+        expect(suggestions.status).toBe(200);
+        expect(suggestions.body.some((item: any) => item.name === 'Yogur')).toBe(true);
+    });
+
     it('DELETE /api/shopping/items/:id - deletes item', async () => {
         const res = await request(app)
             .delete(`/api/shopping/items/${itemId}`)
@@ -416,6 +458,30 @@ describe('Rate limiting and recipe import', () => {
 
         expect(limited.status).toBe(429);
         expect(limited.body.error.code).toBe('RATE_LIMITED');
+    });
+
+    it('stores shared recipe tags and per-user recipe preferences', async () => {
+        const tags = await request(app)
+            .put(`/api/recipes/${recipeId}/tags`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ tags: ['Cena', 'Rápida'] });
+        expect(tags.status).toBe(200);
+        expect(tags.body.map((tag: any) => tag.name)).toContain('Cena');
+
+        const prefs = await request(app)
+            .put(`/api/recipes/${recipeId}/preferences`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ isFavorite: true, rating: 5 });
+        expect(prefs.status).toBe(200);
+        expect(prefs.body.is_favorite).toBe(true);
+        expect(prefs.body.my_rating).toBe(5);
+
+        const filtered = await request(app)
+            .get('/api/recipes?tags=Cena&favorite=true&minRating=5')
+            .set('Authorization', `Bearer ${token}`);
+        expect(filtered.status).toBe(200);
+        expect(filtered.body.some((recipe: any) => recipe.id === recipeId)).toBe(true);
+        expect(filtered.body.find((recipe: any) => recipe.id === recipeId).tags[0].name).toBe('Cena');
     });
 
     it('RecipeService.fetchAndParse prioritizes JSON-LD recipe data', async () => {

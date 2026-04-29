@@ -13,6 +13,17 @@ export default function Recipes() {
   const navigate = useNavigate();
   const [recipes, setRecipes] = useState<RecipeRecord[]>([]);
   const [search, setSearch] = useState('');
+  const [selectedTag, setSelectedTag] = useState('');
+  const [favoriteOnly, setFavoriteOnly] = useState(false);
+  const [availableTags, setAvailableTags] = useState<Array<{ id: string; name: string }>>([]);
+  const [shoppingLists, setShoppingLists] = useState<any[]>([]);
+  const [ingredientModal, setIngredientModal] = useState<{
+    recipe: RecipeRecord;
+    ingredients: Array<{ id: string; name: string; original_text: string }>;
+    selected: string[];
+    listId: string;
+  } | null>(null);
+  const [tagEditor, setTagEditor] = useState<{ recipe: RecipeRecord; value: string } | null>(null);
   const [suggestedRecipes, setSuggestedRecipes] = useState<VoiceRecipeSuggestion[] | null>(null);
   const [voiceMessage, setVoiceMessage] = useState<string>('');
   const [savingIndex, setSavingIndex] = useState<number | null>(null);
@@ -27,19 +38,44 @@ export default function Recipes() {
   } | null>(null);
 
   const load = async () => {
-    const data = await api.recipes.getAll();
+    const data = await api.recipes.getAll({
+      search,
+      tags: selectedTag,
+      favorite: favoriteOnly,
+    });
     setRecipes(data);
   };
 
   useEffect(() => {
     void load();
+  }, [search, selectedTag, favoriteOnly]);
+
+  useEffect(() => {
+    void Promise.all([
+      api.recipes.getTags().catch(() => []),
+      api.shopping.getLists().catch(() => []),
+    ]).then(([tags, lists]) => {
+      setAvailableTags(tags);
+      setShoppingLists(lists);
+    });
   }, []);
 
-  const filtered = recipes.filter(
-    (recipe) =>
-      recipe.title.toLowerCase().includes(search.toLowerCase()) ||
-      (recipe.description || '').toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = recipes;
+
+  const updateRecipePreference = async (recipe: RecipeRecord, data: { isFavorite?: boolean; rating?: number | null }) => {
+    const next = await api.recipes.updatePreferences(recipe.id, data);
+    setRecipes((current) => current.map((item) => item.id === recipe.id ? { ...item, ...next } : item));
+  };
+
+  const openIngredientModal = async (recipe: RecipeRecord) => {
+    const detail = await api.recipes.getById(recipe.id);
+    setIngredientModal({
+      recipe,
+      ingredients: (detail.ingredients || []) as any[],
+      selected: (detail.ingredients || []).map((ingredient) => ingredient.id),
+      listId: shoppingLists[0]?.id || '',
+    });
+  };
 
   const handleVoiceResult = useCallback(async (finalText: string) => {
     try {
@@ -114,6 +150,21 @@ export default function Recipes() {
           onChange={(e) => setSearch(e.target.value)}
           aria-label={t('common.search')}
         />
+        <div className="suggestion-row">
+          <button type="button" className={`chip ${favoriteOnly ? 'active' : ''}`} onClick={() => setFavoriteOnly((current) => !current)}>
+            ★ Favoritas
+          </button>
+          {availableTags.map((tag) => (
+            <button
+              key={tag.id}
+              type="button"
+              className={`chip ${selectedTag === tag.name ? 'active' : ''}`}
+              onClick={() => setSelectedTag((current) => current === tag.name ? '' : tag.name)}
+            >
+              {tag.name}
+            </button>
+          ))}
+        </div>
       </Surface>
 
       <div className="recipes-grid">
@@ -131,13 +182,18 @@ export default function Recipes() {
                 />
               ) : null}
             </div>
-            <div className="recipe-info">
-              <div className="recipe-card-topline">
-                {recipe.servings ? <span>{recipe.servings} raciones</span> : <span>Receta</span>}
-                {recipe.prep_time_minutes ? <span>{recipe.prep_time_minutes + (recipe.cook_time_minutes || 0)} min</span> : null}
-              </div>
+              <div className="recipe-info">
+                <div className="recipe-card-topline">
+                  {recipe.servings ? <span>{recipe.servings} raciones</span> : <span>Receta</span>}
+                  {recipe.prep_time_minutes ? <span>{recipe.prep_time_minutes + (recipe.cook_time_minutes || 0)} min</span> : null}
+                </div>
               <h3 className="recipe-title">{recipe.title}</h3>
               <p className="recipe-description">{recipe.description || 'Sin descripción todavía.'}</p>
+              {recipe.tags?.length ? (
+                <div className="suggestion-row">
+                  {recipe.tags.map((tag) => <span key={tag.id} className="chip">{tag.name}</span>)}
+                </div>
+              ) : null}
 
               {recipe.calories_per_serving || recipe.protein_per_serving || recipe.carbs_per_serving || recipe.fat_per_serving ? (
                 <div className="planner-macros">
@@ -147,10 +203,108 @@ export default function Recipes() {
                   {recipe.protein_per_serving ? <span className="macro-badge-sm protein">{recipe.protein_per_serving}g P</span> : null}
                 </div>
               ) : null}
+              <div className="surface-actions" onClick={(event) => event.stopPropagation()}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void updateRecipePreference(recipe, { isFavorite: !recipe.is_favorite, rating: recipe.my_rating ?? null })}>
+                  {recipe.is_favorite ? '★' : '☆'}
+                </button>
+                <select
+                  className="input"
+                  style={{ width: 86, padding: '6px 8px' }}
+                  value={recipe.my_rating || ''}
+                  onChange={(event) => void updateRecipePreference(recipe, { isFavorite: recipe.is_favorite, rating: event.target.value ? Number(event.target.value) : null })}
+                >
+                  <option value="">Nota</option>
+                  {[1, 2, 3, 4, 5].map((rating) => <option key={rating} value={rating}>{rating}★</option>)}
+                </select>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTagEditor({ recipe, value: (recipe.tags || []).map((tag) => tag.name).join(', ') })}>
+                  Tags
+                </button>
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => void openIngredientModal(recipe)}>
+                  Compra
+                </button>
+              </div>
             </div>
           </article>
         ))}
       </div>
+
+      {tagEditor ? (
+        <div className="modal-overlay" onClick={() => setTagEditor(null)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">Etiquetas</span>
+              <button className="modal-close touch-target" onClick={() => setTagEditor(null)} aria-label={t('common.close')}>×</button>
+            </div>
+            <div className="modal-body">
+              <input className="input" value={tagEditor.value} onChange={(event) => setTagEditor({ ...tagEditor, value: event.target.value })} placeholder="rápida, cena, vegetariana" />
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setTagEditor(null)}>{t('common.cancel')}</button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    await api.recipes.updateTags(tagEditor.recipe.id, tagEditor.value.split(',').map((tag) => tag.trim()).filter(Boolean));
+                    setTagEditor(null);
+                    const tags = await api.recipes.getTags();
+                    setAvailableTags(tags);
+                    await load();
+                  }}
+                >
+                  {t('common.save')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {ingredientModal ? (
+        <div className="modal-overlay" onClick={() => setIngredientModal(null)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">Añadir ingredientes</span>
+              <button className="modal-close touch-target" onClick={() => setIngredientModal(null)} aria-label={t('common.close')}>×</button>
+            </div>
+            <div className="modal-body">
+              <select className="input" value={ingredientModal.listId} onChange={(event) => setIngredientModal({ ...ingredientModal, listId: event.target.value })}>
+                {shoppingLists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}
+              </select>
+              <div className="modal-stack">
+                {ingredientModal.ingredients.map((ingredient) => (
+                  <label key={ingredient.id} className="list-row">
+                    <input
+                      type="checkbox"
+                      checked={ingredientModal.selected.includes(ingredient.id)}
+                      onChange={() => setIngredientModal((current) => current ? {
+                        ...current,
+                        selected: current.selected.includes(ingredient.id)
+                          ? current.selected.filter((id) => id !== ingredient.id)
+                          : [...current.selected, ingredient.id],
+                      } : current)}
+                    />
+                    <span>{ingredient.original_text || ingredient.name}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setIngredientModal(null)}>{t('common.cancel')}</button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!ingredientModal.listId || ingredientModal.selected.length === 0}
+                  onClick={async () => {
+                    await api.recipes.addToShoppingList(ingredientModal.recipe.id, ingredientModal.listId, ingredientModal.selected);
+                    setIngredientModal(null);
+                    toastSuccess('Ingredientes añadidos');
+                  }}
+                >
+                  {t('recipes.addToShoppingList')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {suggestedRecipes ? (
         <div className="modal-overlay" style={{ alignItems: 'flex-start', paddingTop: '8vh', overflowY: 'auto' }} onClick={() => setSuggestedRecipes(null)}>

@@ -3,10 +3,12 @@ import { useOfflineStore } from '../store/offline';
 import type {
     ApiErrorPayload,
     AuthUser,
+    BuyAgainSuggestion,
     CalendarEvent,
     DashboardPayload,
     DashboardSummary,
     LoginResponse,
+    ShoppingDuplicatePreview,
     VoiceRecipeCommandProposal,
     VoiceShoppingItem,
     VoiceEnvelope,
@@ -259,6 +261,9 @@ export async function enqueueOfflineMutation(entry: Omit<OfflineMutationEntry, '
         id: createOfflineId(`${entry.resource}_queue`),
         scope: getCurrentScope(),
         createdAt: Date.now(),
+        status: 'pending',
+        attempts: 0,
+        lastError: null,
     });
     await updatePendingCount();
 }
@@ -526,6 +531,9 @@ async function enqueueShoppingOperation(entry: Omit<ShoppingQueueEntry, 'id' | '
         id: createOfflineId('shopping_queue'),
         scope: getCurrentScope(),
         createdAt: Date.now(),
+        status: 'pending',
+        attempts: 0,
+        lastError: null,
     });
     await updatePendingCount();
 }
@@ -553,6 +561,9 @@ async function syncShoppingQueue() {
     const entries = await listShoppingQueueEntries(scope);
 
     for (const entry of entries) {
+        if (entry.status === 'failed') {
+            continue;
+        }
         try {
             if (entry.operation === 'add') {
                 const created = await rawRequest<any>(
@@ -599,8 +610,8 @@ async function syncShoppingQueue() {
 
             await deleteShoppingQueueEntry(entry.id);
         } catch (error: any) {
+            const message = error?.message || 'No se pudo sincronizar este cambio';
             if (entry.listId) {
-                const message = error?.message || 'No se pudo sincronizar este cambio';
                 await markCachedItem(entry.listId, entry.itemId, (item) => ({
                     ...item,
                     pending_sync: false,
@@ -608,15 +619,12 @@ async function syncShoppingQueue() {
                 }));
             }
 
-            if (entry.operation === 'add') {
-                const queuedEntries = await listShoppingQueueEntries(scope);
-                const dependentEntries = queuedEntries.filter((queuedEntry) => queuedEntry.itemId === entry.itemId);
-                for (const dependentEntry of dependentEntries) {
-                    await deleteShoppingQueueEntry(dependentEntry.id);
-                }
-            } else {
-                await deleteShoppingQueueEntry(entry.id);
-            }
+            await putShoppingQueueEntry({
+                ...entry,
+                status: 'failed',
+                attempts: (entry.attempts || 0) + 1,
+                lastError: message,
+            });
         }
     }
 
@@ -633,6 +641,9 @@ async function syncOfflineMutationQueue() {
     const entries = await listOfflineMutationEntries(scope);
 
     for (const entry of entries) {
+        if (entry.status === 'failed') {
+            continue;
+        }
         try {
             if (entry.resource === 'calendar') {
                 if (entry.operation === 'create') {
@@ -715,9 +726,14 @@ async function syncOfflineMutationQueue() {
             }
 
             await deleteOfflineMutationEntry(entry.id);
-        } catch (error) {
+        } catch (error: any) {
             if (!isOfflineError(error)) {
-                await deleteOfflineMutationEntry(entry.id);
+                await putOfflineMutationEntry({
+                    ...entry,
+                    status: 'failed',
+                    attempts: (entry.attempts || 0) + 1,
+                    lastError: error?.message || 'No se pudo sincronizar este cambio',
+                });
             }
         }
     }
@@ -760,6 +776,39 @@ export async function refreshOfflineDataState() {
     }
 }
 
+export const offlineApi = {
+    listFailures: async () => {
+        const scope = getCurrentScope();
+        const [shopping, mutations] = await Promise.all([
+            listShoppingQueueEntries(scope),
+            listOfflineMutationEntries(scope),
+        ]);
+        return {
+            shopping: shopping.filter((entry) => entry.status === 'failed'),
+            mutations: mutations.filter((entry) => entry.status === 'failed'),
+        };
+    },
+    retry: async (kind: 'shopping' | 'mutation', id: string) => {
+        const scope = getCurrentScope();
+        if (kind === 'shopping') {
+            const entry = (await listShoppingQueueEntries(scope)).find((item) => item.id === id);
+            if (entry) await putShoppingQueueEntry({ ...entry, status: 'pending', lastError: null });
+        } else {
+            const entry = (await listOfflineMutationEntries(scope)).find((item) => item.id === id);
+            if (entry) await putOfflineMutationEntry({ ...entry, status: 'pending', lastError: null });
+        }
+        await refreshOfflineDataState();
+    },
+    discard: async (kind: 'shopping' | 'mutation', id: string) => {
+        if (kind === 'shopping') {
+            await deleteShoppingQueueEntry(id);
+        } else {
+            await deleteOfflineMutationEntry(id);
+        }
+        await updatePendingCount();
+    },
+};
+
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     return rawRequest<T>(path, options);
 }
@@ -782,6 +831,9 @@ export const shoppingApi = {
 
             return request<any[]>(`/shopping/lists/${listId}/items`);
         },
+        previewItem: (listId: string, data: Record<string, unknown>) =>
+            request<ShoppingDuplicatePreview>(`/shopping/lists/${listId}/items/preview`, { method: 'POST', body: JSON.stringify(data) }),
+        getBuyAgain: (listId: string) => request<BuyAgainSuggestion[]>(`/shopping/lists/${listId}/buy-again`),
         addItem: async (listId: string, data: Record<string, unknown>) => {
             if (!isOffline()) {
                 try {
@@ -804,6 +856,21 @@ export const shoppingApi = {
                 body: data,
             });
             return optimisticItem;
+        },
+        mergeItem: async (id: string, source: Record<string, unknown>, mode: 'merge' | 'replace' | 'separate' = 'merge') => {
+            const result = await request<any>(`/shopping/items/${id}/merge`, {
+                method: 'POST',
+                body: JSON.stringify({ source, mode }),
+            });
+            const lists = await request<any[]>('/shopping/lists');
+            for (const list of lists) {
+                const items = await readCachedShoppingItems(list.id);
+                if (items.some((item) => item.id === id)) {
+                    await markCachedItem(list.id, id, () => result);
+                    break;
+                }
+            }
+            return result;
         },
         updateItem: async (id: string, data: Record<string, unknown>) => {
             if (!isOffline()) {

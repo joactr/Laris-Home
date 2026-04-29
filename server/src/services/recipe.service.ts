@@ -528,8 +528,8 @@ export class RecipeService {
       if (ingredientRows.length > 0) {
         const ing = ingredientRows[0];
         const { rows: itemRows } = await pool.query(
-          `INSERT INTO list_items (list_id, name, quantity, unit, added_by_user_id, notes)
-          VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+          `INSERT INTO list_items (list_id, name, normalized_name, quantity, unit, added_by_user_id, notes)
+          VALUES ($1, $2, lower(regexp_replace($2, '[^[:alnum:]]+', ' ', 'g')), $3, $4, $5, $6) RETURNING *`,
           [listId, ing.name, ing.quantity, ing.unit, userId, ing.notes]
         );
         added.push(itemRows[0]);

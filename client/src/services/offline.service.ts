@@ -23,6 +23,9 @@ export interface ShoppingQueueEntry {
   listId?: string;
   body?: Record<string, unknown>;
   createdAt: number;
+  status?: 'pending' | 'failed';
+  attempts?: number;
+  lastError?: string | null;
 }
 
 export interface OfflineMutationEntry {
@@ -35,6 +38,9 @@ export interface OfflineMutationEntry {
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: Record<string, unknown>;
   createdAt: number;
+  status?: 'pending' | 'failed';
+  attempts?: number;
+  lastError?: string | null;
 }
 
 const DB_NAME = 'laris-home-offline';

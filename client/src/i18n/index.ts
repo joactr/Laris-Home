@@ -27,6 +27,7 @@ export const translations: Record<string, Record<string, string>> = {
     'common.next': 'Siguiente',
     'common.prev': 'Anterior',
     'common.retry': 'Reintentar',
+    'common.error': 'Algo ha fallado.',
     'common.review': 'Revisar',
     'common.mark': 'Marcar',
     'common.unmark': 'Desmarcar',
@@ -218,6 +219,9 @@ export const translations: Record<string, Record<string, string>> = {
     'voice.error.noItems': 'No se detectaron items.',
     'voice.error.noRecipes': 'No se detectaron recetas.',
     'voice.transcriptLabel': 'Transcripción',
+    'voice.reviewTranscript': 'Revisar transcripción',
+    'voice.reviewTranscriptHint': 'Corrige lo que haga falta antes de que la IA actúe.',
+    'voice.processTranscript': 'Procesar',
 
     // Meals
     'meals.breakfast': 'Desayuno',

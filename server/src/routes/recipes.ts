@@ -54,6 +54,33 @@ const CreateEnrichedSchema = z.object({
   imageUrl: z.union([z.string().url(), z.literal(''), z.null()]).optional(),
 });
 
+const PreferencesSchema = z.object({
+  isFavorite: z.boolean().optional(),
+  rating: z.number().int().min(1).max(5).nullable().optional(),
+});
+
+const TagsSchema = z.object({
+  tags: z.array(z.string().trim().min(1).max(80)).max(12),
+});
+
+function normalizeTagName(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function getRecipeIngredients(recipeId: string) {
+  const ingredientsResult = await pool.query(
+    'SELECT * FROM recipe_ingredients WHERE recipe_id = $1 ORDER BY name',
+    [recipeId]
+  );
+  return ingredientsResult.rows;
+}
+
 router.post('/import-from-url', importRateLimiter, async (req: AuthRequest, res: Response) => {
   const parsed = ImportSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -132,13 +159,77 @@ router.post('/:id/add-to-shopping-list', async (req: AuthRequest, res: Response)
 
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
+    const params = req.query;
+    const values: unknown[] = [req.user!.householdId, req.user!.id];
+    const where = ['r.household_id = $1'];
+    const tagFilters = String(params.tags || '')
+      .split(',')
+      .map((tag) => normalizeTagName(tag))
+      .filter(Boolean);
+
+    if (params.search) {
+      values.push(`%${String(params.search).toLowerCase()}%`);
+      where.push(`(lower(r.title) LIKE $${values.length} OR lower(COALESCE(r.description, '')) LIKE $${values.length})`);
+    }
+    if (params.favorite === 'true') {
+      where.push('COALESCE(rup.is_favorite, false) = true');
+    }
+    if (params.minRating) {
+      values.push(Number(params.minRating));
+      where.push(`rup.rating >= $${values.length}`);
+    }
+    if (params.maxMinutes) {
+      values.push(Number(params.maxMinutes));
+      where.push(`(COALESCE(r.prep_time_minutes, 0) + COALESCE(r.cook_time_minutes, 0)) <= $${values.length}`);
+    }
+    if (params.maxCalories) {
+      values.push(Number(params.maxCalories));
+      where.push(`r.calories_per_serving <= $${values.length}`);
+    }
+    if (tagFilters.length > 0) {
+      values.push(tagFilters);
+      where.push(`EXISTS (
+        SELECT 1
+        FROM recipe_tag_assignments rta_filter
+        JOIN recipe_tags rt_filter ON rt_filter.id = rta_filter.tag_id
+        WHERE rta_filter.recipe_id = r.id AND rt_filter.normalized_name = ANY($${values.length}::text[])
+      )`);
+    }
+
     const result = await pool.query(
-      'SELECT * FROM recipes WHERE household_id = $1 ORDER BY created_at DESC',
-      [req.user!.householdId]
+      `SELECT r.*,
+              COALESCE(rup.is_favorite, false) AS is_favorite,
+              rup.rating AS my_rating,
+              COALESCE(
+                json_agg(json_build_object('id', rt.id, 'name', rt.name) ORDER BY rt.name)
+                FILTER (WHERE rt.id IS NOT NULL),
+                '[]'
+              ) AS tags
+       FROM recipes r
+       LEFT JOIN recipe_user_preferences rup
+         ON rup.recipe_id = r.id AND rup.user_id = $2
+       LEFT JOIN recipe_tag_assignments rta ON rta.recipe_id = r.id
+       LEFT JOIN recipe_tags rt ON rt.id = rta.tag_id
+       WHERE ${where.join(' AND ')}
+       GROUP BY r.id, rup.is_favorite, rup.rating
+       ORDER BY r.created_at DESC`,
+      values
     );
     res.json(result.rows);
   } catch {
     sendError(res, 500, 'INTERNAL_ERROR', 'Error al obtener las recetas.');
+  }
+});
+
+router.get('/tags/all', async (req: AuthRequest, res: Response) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, name FROM recipe_tags WHERE household_id = $1 ORDER BY name',
+      [req.user!.householdId]
+    );
+    res.json(rows);
+  } catch {
+    sendError(res, 500, 'INTERNAL_ERROR', 'Error al obtener las etiquetas.');
   }
 });
 
@@ -154,14 +245,101 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     const recipe = recipeResult.rows[0];
-    const ingredientsResult = await pool.query(
-      'SELECT * FROM recipe_ingredients WHERE recipe_id = $1',
-      [recipe.id]
-    );
-    recipe.ingredients = ingredientsResult.rows;
+    recipe.ingredients = await getRecipeIngredients(recipe.id);
     res.json(recipe);
   } catch {
     sendError(res, 500, 'INTERNAL_ERROR', 'Error al obtener la receta.');
+  }
+});
+
+router.put('/:id/preferences', async (req: AuthRequest, res: Response) => {
+  const parsed = PreferencesSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 400, 'VALIDATION_ERROR', 'Preferencias no validas.', parsed.error.flatten());
+    return;
+  }
+
+  try {
+    const recipeExists = await pool.query(
+      'SELECT id FROM recipes WHERE id = $1 AND household_id = $2',
+      [req.params.id, req.user!.householdId]
+    );
+    if (!recipeExists.rows.length) {
+      sendError(res, 404, 'NOT_FOUND', 'Receta no encontrada.');
+      return;
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO recipe_user_preferences (recipe_id, user_id, is_favorite, rating, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (recipe_id, user_id)
+       DO UPDATE SET
+         is_favorite = COALESCE($3, recipe_user_preferences.is_favorite),
+         rating = $4,
+         updated_at = NOW()
+       RETURNING is_favorite, rating AS my_rating`,
+      [req.params.id, req.user!.id, parsed.data.isFavorite, parsed.data.rating ?? null]
+    );
+    res.json(rows[0]);
+  } catch {
+    sendError(res, 500, 'INTERNAL_ERROR', 'Error al guardar preferencias.');
+  }
+});
+
+router.put('/:id/tags', async (req: AuthRequest, res: Response) => {
+  const parsed = TagsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 400, 'VALIDATION_ERROR', 'Etiquetas no validas.', parsed.error.flatten());
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const recipeExists = await client.query(
+      'SELECT id FROM recipes WHERE id = $1 AND household_id = $2',
+      [req.params.id, req.user!.householdId]
+    );
+    if (!recipeExists.rows.length) {
+      await client.query('ROLLBACK');
+      sendError(res, 404, 'NOT_FOUND', 'Receta no encontrada.');
+      return;
+    }
+
+    await client.query('DELETE FROM recipe_tag_assignments WHERE recipe_id = $1', [req.params.id]);
+    for (const rawTag of parsed.data.tags) {
+      const normalized = normalizeTagName(rawTag);
+      if (!normalized) continue;
+      const tag = await client.query(
+        `INSERT INTO recipe_tags (household_id, name, normalized_name)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (household_id, normalized_name)
+         DO UPDATE SET name = EXCLUDED.name
+         RETURNING id, name`,
+        [req.user!.householdId, rawTag.trim(), normalized]
+      );
+      await client.query(
+        `INSERT INTO recipe_tag_assignments (recipe_id, tag_id)
+         VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+        [req.params.id, tag.rows[0].id]
+      );
+    }
+    await client.query('COMMIT');
+    const { rows } = await pool.query(
+      `SELECT rt.id, rt.name
+       FROM recipe_tags rt
+       JOIN recipe_tag_assignments rta ON rta.tag_id = rt.id
+       WHERE rta.recipe_id = $1
+       ORDER BY rt.name`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch {
+    await client.query('ROLLBACK');
+    sendError(res, 500, 'INTERNAL_ERROR', 'Error al guardar etiquetas.');
+  } finally {
+    client.release();
   }
 });
 

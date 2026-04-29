@@ -231,6 +231,9 @@ export type RecipeRecord = {
   carbs_per_serving?: number | null;
   fat_per_serving?: number | null;
   ingredients?: RecipeRecordIngredient[];
+  tags?: Array<{ id: string; name: string }>;
+  is_favorite?: boolean;
+  my_rating?: number | null;
   sourceUrl?: string | null;
   imageUrl?: string | null;
   prepTimeMinutes?: number | null;
@@ -239,6 +242,34 @@ export type RecipeRecord = {
   proteinPerServing?: number | null;
   carbsPerServing?: number | null;
   fatPerServing?: number | null;
+};
+
+export type ShoppingDuplicatePreview = {
+  item: {
+    name: string;
+    normalized_name: string;
+    quantity?: number | null;
+    unit?: string | null;
+    category?: string | null;
+    notes?: string | null;
+  };
+  candidates: Array<{
+    id: string;
+    name: string;
+    quantity?: number | null;
+    unit?: string | null;
+    category?: string | null;
+  }>;
+};
+
+export type BuyAgainSuggestion = {
+  normalized_name: string;
+  name: string;
+  quantity?: number | null;
+  unit?: string | null;
+  category?: string | null;
+  times_bought: number;
+  last_bought_at?: string | null;
 };
 
 export type RecipeDraft = {
