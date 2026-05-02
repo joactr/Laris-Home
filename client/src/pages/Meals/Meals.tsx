@@ -12,6 +12,24 @@ import SectionHeader from '../../components/SectionHeader';
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
 
+type WeekShoppingDecision = { key: string; action: 'add' | 'merge' | 'skip'; duplicateItemId?: string | null };
+type WeekShoppingPreviewItem = {
+  key: string;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  notes?: string | null;
+  sources: Array<{ date: string; mealType: string; recipeTitle: string; ingredientName: string }>;
+  candidates: Array<{ id: string; name: string; quantity?: number | null; unit?: string | null }>;
+  defaultAction: 'add' | 'merge';
+  defaultDuplicateItemId: string | null;
+};
+type WeekShoppingPreview = {
+  recipeMealCount: number;
+  skippedTextMealsCount: number;
+  items: WeekShoppingPreviewItem[];
+};
+
 export default function Meals() {
   const navigate = useNavigate();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -25,8 +43,10 @@ export default function Meals() {
   const [recipes, setRecipes] = useState<any[]>([]);
   const [selectedList, setSelectedList] = useState('');
   const [showWeekShoppingModal, setShowWeekShoppingModal] = useState(false);
-  const [weekShoppingPreview, setWeekShoppingPreview] = useState({ recipeMealCount: 0, skippedTextMealsCount: 0 });
-  const [weekShoppingResult, setWeekShoppingResult] = useState<{ addedCount: number; skippedTextMealsCount: number } | null>(null);
+  const [weekShoppingPreview, setWeekShoppingPreview] = useState<WeekShoppingPreview | null>(null);
+  const [weekShoppingDecisions, setWeekShoppingDecisions] = useState<Record<string, WeekShoppingDecision>>({});
+  const [weekShoppingPreviewLoading, setWeekShoppingPreviewLoading] = useState(false);
+  const [weekShoppingResult, setWeekShoppingResult] = useState<{ addedCount: number; mergedCount: number; skippedCount: number; skippedTextMealsCount: number } | null>(null);
   const [weekShoppingError, setWeekShoppingError] = useState<string | null>(null);
   const [openDay, setOpenDay] = useState<string | null>(null);
   const isOffline = useOfflineStore((s) => s.isOffline);
@@ -140,32 +160,56 @@ export default function Meals() {
     }
   };
 
-  const openWeekShoppingModal = () => {
-    const summary = Object.values(mealMap).flat().reduce(
-      (acc, item: any) => {
-        if (item.recipe_id) acc.recipeMealCount += 1;
-        else acc.skippedTextMealsCount += 1;
-        return acc;
-      },
-      { recipeMealCount: 0, skippedTextMealsCount: 0 }
-    );
-    setWeekShoppingPreview(summary);
+  const openWeekShoppingModal = async () => {
+    if (!selectedList) return;
     setShowWeekShoppingModal(true);
-  };
-
-  const generateWeekShopping = async () => {
+    setWeekShoppingPreviewLoading(true);
+    setWeekShoppingError(null);
     try {
-      const result = await api.meals.generateShoppingFromRange(
+      const preview = await api.meals.previewShoppingFromRange(
         format(weekStart, 'yyyy-MM-dd'),
         format(weekEnd, 'yyyy-MM-dd'),
         selectedList
       );
+      setWeekShoppingPreview(preview);
+      setWeekShoppingDecisions(Object.fromEntries(
+        (preview.items || []).map((item: WeekShoppingPreviewItem) => [
+          item.key,
+          { key: item.key, action: item.defaultAction, duplicateItemId: item.defaultDuplicateItemId },
+        ])
+      ));
+    } catch (err: any) {
+      setWeekShoppingError(err.message || t('common.error'));
+      toastError('No se pudo preparar la vista previa', err?.message || t('common.error'));
+    } finally {
+      setWeekShoppingPreviewLoading(false);
+    }
+  };
+
+  const setWeekDecision = (key: string, patch: Partial<WeekShoppingDecision>) => {
+    setWeekShoppingDecisions((current) => ({
+      ...current,
+      [key]: { ...(current[key] || { key, action: 'add' as const }), ...patch },
+    }));
+  };
+
+  const generateWeekShopping = async () => {
+    try {
+      const decisions = Object.values(weekShoppingDecisions);
+      const result = await api.meals.generateShoppingFromRange(
+        format(weekStart, 'yyyy-MM-dd'),
+        format(weekEnd, 'yyyy-MM-dd'),
+        selectedList,
+        decisions
+      );
       setShowWeekShoppingModal(false);
       setWeekShoppingResult({
-        addedCount: result.addedCount,
-        skippedTextMealsCount: result.skippedTextMealsCount,
+        addedCount: result.addedCount || 0,
+        mergedCount: result.mergedCount || 0,
+        skippedCount: result.skippedCount || 0,
+        skippedTextMealsCount: result.skippedTextMealsCount || 0,
       });
-      toastSuccess('Lista de compra generada', `Se añadieron ${result.addedCount} ingrediente${result.addedCount === 1 ? '' : 's'}.`);
+      toastSuccess('Lista de compra generada', `${result.addedCount || 0} añadidos · ${result.mergedCount || 0} fusionados.`);
     } catch (err: any) {
       setWeekShoppingError(err.message || t('common.error'));
       toastError('No se pudo generar la compra semanal', err?.message || t('common.error'));
@@ -454,44 +498,83 @@ export default function Meals() {
 
       {showWeekShoppingModal ? (
         <div className="modal-overlay" onClick={() => setShowWeekShoppingModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">{t('meals.generateWeekShoppingTitle')}</span>
+              <span className="modal-title">Vista previa de compra semanal</span>
               <button className="modal-close touch-target" onClick={() => setShowWeekShoppingModal(false)} aria-label={t('common.close')}>
                 ×
               </button>
             </div>
             <div className="modal-body">
-              <p style={{ marginBottom: 16 }}>{t('meals.generateWeekShoppingSummary')}</p>
+              <p style={{ marginBottom: 16 }}>Revisa ingredientes, duplicados y fusiones antes de modificar la lista.</p>
               <div className="form-group">
-                <label className="label" htmlFor="week-list-select">
-                  {t('meals.targetList')}
-                </label>
-                <select id="week-list-select" className="input" value={selectedList} onChange={(e) => setSelectedList(e.target.value)}>
-                  {lists.map((list) => (
-                    <option key={list.id} value={list.id}>
-                      {list.name}
-                    </option>
-                  ))}
+                <label className="label" htmlFor="week-list-select">{t('meals.targetList')}</label>
+                <select
+                  id="week-list-select"
+                  className="input"
+                  value={selectedList}
+                  onChange={(e) => {
+                    setSelectedList(e.target.value);
+                    setWeekShoppingPreview(null);
+                    setWeekShoppingDecisions({});
+                  }}
+                >
+                  {lists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}
                 </select>
               </div>
-              <div className="stack-list compact">
-                <div className="list-row">
-                  <span>{t('meals.weekRecipeCount')}</span>
-                  <strong>{weekShoppingPreview.recipeMealCount}</strong>
-                </div>
-                <div className="list-row">
-                  <span>{t('meals.weekSkippedTextMeals')}</span>
-                  <strong>{weekShoppingPreview.skippedTextMealsCount}</strong>
-                </div>
-              </div>
+
+              {weekShoppingPreviewLoading ? (
+                <div className="empty-state compact">Calculando ingredientes y duplicados…</div>
+              ) : weekShoppingPreview ? (
+                <>
+                  <div className="stack-list compact" style={{ marginBottom: 16 }}>
+                    <div className="list-row"><span>Comidas con receta</span><strong>{weekShoppingPreview.recipeMealCount}</strong></div>
+                    <div className="list-row"><span>Comidas de texto omitidas</span><strong>{weekShoppingPreview.skippedTextMealsCount}</strong></div>
+                    <div className="list-row"><span>Ingredientes agrupados</span><strong>{weekShoppingPreview.items.length}</strong></div>
+                  </div>
+                  <div className="modal-stack">
+                    {weekShoppingPreview.items.map((item) => {
+                      const decision = weekShoppingDecisions[item.key] || { key: item.key, action: item.defaultAction, duplicateItemId: item.defaultDuplicateItemId };
+                      return (
+                        <div key={item.key} className="list-row" style={{ alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1 }}>
+                            <strong>{item.name}</strong>
+                            <p>
+                              {item.quantity != null ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : 'Sin cantidad'}
+                              {' · '}{item.sources.length} origen{item.sources.length === 1 ? '' : 'es'}
+                            </p>
+                            <p className="muted-inline">
+                              {item.sources.slice(0, 3).map((source) => `${source.recipeTitle} (${source.date})`).join(' · ')}
+                            </p>
+                            {item.candidates.length ? (
+                              <p className="muted-inline">Duplicado activo: {item.candidates[0].name}{item.candidates[0].quantity ? ` (${item.candidates[0].quantity}${item.candidates[0].unit ? ` ${item.candidates[0].unit}` : ''})` : ''}</p>
+                            ) : null}
+                          </div>
+                          <div className="surface-actions" style={{ minWidth: 180 }}>
+                            <select
+                              className="input"
+                              value={decision.action}
+                              onChange={(event) => setWeekDecision(item.key, { action: event.target.value as WeekShoppingDecision['action'] })}
+                            >
+                              <option value="add">Añadir</option>
+                              <option value="merge" disabled={!item.candidates.length}>Fusionar</option>
+                              <option value="skip">Omitir</option>
+                            </select>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {!weekShoppingPreview.items.length ? <div className="empty-state compact">No hay ingredientes de recetas en esta semana.</div> : null}
+                  </div>
+                </>
+              ) : (
+                <button type="button" className="btn btn-secondary" onClick={() => void openWeekShoppingModal()}>Recalcular vista previa</button>
+              )}
             </div>
             <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => setShowWeekShoppingModal(false)}>
-                {t('common.cancel')}
-              </button>
-              <button className="btn btn-primary" onClick={() => void generateWeekShopping()} disabled={!selectedList || isOffline}>
-                {t('common.add')}
+              <button className="btn btn-secondary" onClick={() => setShowWeekShoppingModal(false)}>{t('common.cancel')}</button>
+              <button className="btn btn-primary" onClick={() => void generateWeekShopping()} disabled={!selectedList || isOffline || weekShoppingPreviewLoading || !weekShoppingPreview?.items.length}>
+                Confirmar cambios
               </button>
             </div>
           </div>
@@ -501,7 +584,7 @@ export default function Meals() {
       <StatusModal
         isOpen={!!weekShoppingResult}
         title={t('meals.generateWeekShoppingTitle')}
-        message={weekShoppingResult ? t('meals.generateWeekShoppingSuccess', weekShoppingResult.addedCount) : ''}
+        message={weekShoppingResult ? `${weekShoppingResult.addedCount} añadidos · ${weekShoppingResult.mergedCount} fusionados · ${weekShoppingResult.skippedCount} omitidos` : ''}
         details={weekShoppingResult ? `${t('meals.weekSkippedTextMeals')}: ${weekShoppingResult.skippedTextMealsCount}` : null}
         primaryText={t('meals.openShopping')}
         onPrimary={() => navigate('/shopping')}

@@ -13,6 +13,7 @@ export default function Recipes() {
   const navigate = useNavigate();
   const [recipes, setRecipes] = useState<RecipeRecord[]>([]);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedTag, setSelectedTag] = useState('');
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [availableTags, setAvailableTags] = useState<Array<{ id: string; name: string }>>([]);
@@ -37,9 +38,15 @@ export default function Recipes() {
     imageUrl: string;
   } | null>(null);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
   const load = async () => {
     const data = await api.recipes.getAll({
-      search,
+      search: debouncedSearch,
+      searchMode: 'hybrid',
       tags: selectedTag,
       favorite: favoriteOnly,
     });
@@ -48,7 +55,7 @@ export default function Recipes() {
 
   useEffect(() => {
     void load();
-  }, [search, selectedTag, favoriteOnly]);
+  }, [debouncedSearch, selectedTag, favoriteOnly]);
 
   useEffect(() => {
     void Promise.all([
@@ -145,7 +152,7 @@ export default function Recipes() {
       <Surface className="recipes-toolbar">
         <input
           className="input search-input"
-          placeholder={`${t('common.search')}...`}
+          placeholder="Buscar por título, ingrediente, tag o idea…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           aria-label={t('common.search')}

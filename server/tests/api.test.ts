@@ -6,6 +6,7 @@ import pool from '../src/db/pool';
 import { resetRateLimitBuckets } from '../src/lib/rate-limit';
 import { RecipeService } from '../src/services/recipe.service';
 import { OpenRouterService } from '../src/services/openrouter.service';
+import { EmbeddingService } from '../src/services/embedding.service';
 
 let adminUserId: string;
 let memberUserId: string;
@@ -357,6 +358,58 @@ describe('Meal planning endpoints', () => {
         expect(itemsRes.body.some((item: any) => item.name === 'pasta' && Number(item.quantity) === 400)).toBe(true);
         expect(itemsRes.body.some((item: any) => item.name === 'tomate' && Number(item.quantity) === 4)).toBe(true);
     });
+
+
+    it('previews weekly shopping, groups ingredients, and applies merge/skip decisions', async () => {
+        await pool.query(
+            `INSERT INTO meal_plan_items (household_id, date, meal_type, recipe_id, servings)
+             VALUES ($1, '2026-03-24', 'dinner', $2, 2)`,
+            [householdId, recipeId]
+        );
+
+        const duplicate = await request(app)
+            .post(`/api/shopping/lists/${shoppingListId}/items`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ name: '100 g pasta', allowDuplicate: true });
+        expect(duplicate.status).toBe(201);
+
+        const preview = await request(app)
+            .post('/api/meals/generate-shopping/preview')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ start: '2026-03-24', end: '2026-03-24', listId: shoppingListId });
+
+        expect(preview.status).toBe(200);
+        const pasta = preview.body.items.find((item: any) => item.name === 'pasta');
+        const tomate = preview.body.items.find((item: any) => item.name === 'tomate');
+        expect(pasta.quantity).toBe(200);
+        expect(pasta.defaultAction).toBe('merge');
+        expect(pasta.candidates[0].id).toBe(duplicate.body.id);
+        expect(['add', 'merge']).toContain(tomate.defaultAction);
+
+        const apply = await request(app)
+            .post('/api/meals/generate-shopping')
+            .set('Authorization', `Bearer ${token}`)
+            .send({
+                start: '2026-03-24',
+                end: '2026-03-24',
+                listId: shoppingListId,
+                decisions: [
+                    { key: pasta.key, action: 'merge', duplicateItemId: duplicate.body.id },
+                    { key: tomate.key, action: 'skip' },
+                ],
+            });
+
+        expect(apply.status).toBe(200);
+        expect(apply.body.addedCount).toBe(0);
+        expect(apply.body.mergedCount).toBe(1);
+        expect(apply.body.skippedCount).toBe(1);
+
+        const itemsRes = await request(app)
+            .get(`/api/shopping/lists/${shoppingListId}/items`)
+            .set('Authorization', `Bearer ${token}`);
+        const mergedPasta = itemsRes.body.find((item: any) => item.id === duplicate.body.id);
+        expect(Number(mergedPasta.quantity)).toBe(300);
+    });
 });
 
 describe('Chore endpoints', () => {
@@ -484,6 +537,18 @@ describe('Rate limiting and recipe import', () => {
         expect(filtered.body.find((recipe: any) => recipe.id === recipeId).tags[0].name).toBe('Cena');
     });
 
+
+    it('searches recipes by ingredient text and falls back when semantic search is unavailable', async () => {
+        vi.spyOn(EmbeddingService, 'generate').mockRejectedValue(new Error('embedding unavailable'));
+
+        const filtered = await request(app)
+            .get('/api/recipes?search=tomate&searchMode=hybrid')
+            .set('Authorization', `Bearer ${token}`);
+
+        expect(filtered.status).toBe(200);
+        expect(filtered.body.some((recipe: any) => recipe.id === recipeId)).toBe(true);
+    });
+
     it('RecipeService.fetchAndParse prioritizes JSON-LD recipe data', async () => {
         const html = `
           <html>
@@ -493,22 +558,34 @@ describe('Rate limiting and recipe import', () => {
                   "@context": "https://schema.org",
                   "@type": "Recipe",
                   "name": "Tortilla",
-                  "description": "Clasica",
+                  "description": "Clasica: don&#x27;t worry about messy edges.",
                   "recipeYield": "4 servings",
                   "prepTime": "PT10M",
                   "cookTime": "PT15M",
                   "image": "/images/tortilla.jpg",
-                  "recipeIngredient": ["4 huevos", "2 patatas"],
+                  "recipeIngredient": ["4 huevos", "2 patatas", "Greek Oregano (affiliate link)"],
                   "recipeInstructions": [
                     { "@type": "HowToStep", "text": "Batir los huevos" },
-                    { "@type": "HowToStep", "text": "Freir las patatas" }
+                    { "@type": "HowToStep", "text": "Freir las patatas con Greek Seasoning (affiliate link)" }
                   ]
                 }
               </script>
             </head>
-            <body>ignored content</body>
+            <body>
+              <section>
+                <h2>Nutrition</h2>
+                Nutrition: per serving kcal 445 fat 10 g saturates 3 g carbs 64 g sugars 7 g fibre 2 g protein 30 g salt 1.2 g
+              </section>
+            </body>
           </html>
         `;
+
+        const macroSpy = vi.spyOn(OpenRouterService, 'calculateMacros').mockResolvedValue({
+            caloriesPerServing: 999,
+            proteinPerServing: 1,
+            carbsPerServing: 1,
+            fatPerServing: 99,
+        });
 
         vi.stubGlobal('fetch', vi.fn(async (url: string) => {
             if (url === 'https://example.com/tortilla') {
@@ -525,10 +602,80 @@ describe('Rate limiting and recipe import', () => {
         const recipe = await RecipeService.fetchAndParse('https://example.com/tortilla');
 
         expect(recipe.title).toBe('Tortilla');
+        expect(recipe.description).toBe("Clasica: don't worry about messy edges.");
         expect(recipe.servings).toBe(4);
-        expect(recipe.instructions).toEqual(['Batir los huevos', 'Freir las patatas']);
+        expect(recipe.instructions).toEqual(['Batir los huevos', 'Freir las patatas con Greek Seasoning']);
         expect(recipe.imageUrl).toBe('https://example.com/images/tortilla.jpg');
         expect(recipe.ingredients[0].originalText).toBe('4 huevos');
+        expect(recipe.ingredients.map((ingredient) => ingredient.originalText)).toContain('Greek Oregano');
+        expect(JSON.stringify(recipe)).not.toContain('affiliate link');
+        expect(JSON.stringify(recipe)).not.toContain('&#x27;');
+        expect(recipe.caloriesPerServing).toBe(445);
+        expect(recipe.fatPerServing).toBe(10);
+        expect(recipe.carbsPerServing).toBe(64);
+        expect(recipe.proteinPerServing).toBe(30);
+        expect(macroSpy).not.toHaveBeenCalled();
+    });
+
+    it('RecipeService.fetchAndParse cleans page text and parsed LLM recipe noise', async () => {
+        const html = `
+          <html>
+            <body>
+              <h1>Greek Meatballs</h1>
+              <p>These meatballs don&#x27;t have breadcrumbs.</p>
+              <p>Add Greek Oregano (affiliate link) and mix well.</p>
+            </body>
+          </html>
+        `;
+
+        const parseSpy = vi.spyOn(OpenRouterService, 'parseRecipe').mockResolvedValue({
+            title: 'Greek Meatballs',
+            description: 'These meatballs don&#x27;t have breadcrumbs.',
+            servings: 4,
+            prepTimeMinutes: null,
+            cookTimeMinutes: null,
+            ingredients: [
+                {
+                    name: 'Greek Oregano (affiliate link)',
+                    originalText: 'Greek Oregano (affiliate link)',
+                    quantity: null,
+                    unit: null,
+                    notes: 'paid link',
+                },
+            ],
+            instructions: ['Mix Greek Oregano (affiliate link) with the meat.'],
+        });
+        vi.spyOn(OpenRouterService, 'calculateMacros').mockResolvedValue({
+            caloriesPerServing: null,
+            proteinPerServing: null,
+            carbsPerServing: null,
+            fatPerServing: null,
+        });
+
+        vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+            if (url === 'https://example.com/meatballs') {
+                return {
+                    ok: true,
+                    url,
+                    text: async () => html,
+                };
+            }
+
+            throw new Error('unexpected fetch');
+        }));
+
+        const recipe = await RecipeService.fetchAndParse('https://example.com/meatballs');
+        const contentSentToLlm = parseSpy.mock.calls[0][0];
+
+        expect(contentSentToLlm).toContain("don't have breadcrumbs");
+        expect(contentSentToLlm).not.toContain('&#x27;');
+        expect(contentSentToLlm).not.toContain('affiliate link');
+        expect(recipe.description).toBe("These meatballs don't have breadcrumbs.");
+        expect(recipe.ingredients[0].originalText).toBe('Greek Oregano');
+        expect(recipe.ingredients[0].notes).toBeNull();
+        expect(recipe.instructions).toEqual(['Mix Greek Oregano with the meat.']);
+        expect(JSON.stringify(recipe)).not.toContain('affiliate link');
+        expect(JSON.stringify(recipe)).not.toContain('&#x27;');
     });
 });
 

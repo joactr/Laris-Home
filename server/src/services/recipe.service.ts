@@ -1,8 +1,9 @@
 import pool from '../db/pool';
 import { parsedRecipeSchema } from '../contracts/voice';
-import { OpenRouterService, ParsedRecipe } from './openrouter.service';
+import { OpenRouterService, ParsedIngredient, ParsedRecipe } from './openrouter.service';
 import { EmbeddingService } from './embedding.service';
 
+type MacroFields = Pick<ParsedRecipe, 'caloriesPerServing' | 'proteinPerServing' | 'carbsPerServing' | 'fatPerServing'>;
 type ImportedRecipe = ParsedRecipe & { imageUrl?: string | null };
 
 export class RecipeService {
@@ -22,18 +23,23 @@ export class RecipeService {
     const pageUrl = response.url || url;
 
     const structuredRecipe = this.extractStructuredRecipe(html, pageUrl);
-    const recipe = structuredRecipe ?? await OpenRouterService.parseRecipe(this.extractPageText(html));
+    const recipe = structuredRecipe ?? this.cleanParsedRecipe(await OpenRouterService.parseRecipe(this.extractPageText(html)));
     const imageUrl = structuredRecipe?.imageUrl ?? this.extractRecipeImageUrl(html, pageUrl);
+    const publishedMacros = this.extractPublishedNutrition(html) || this.pickMacroFields(structuredRecipe);
 
-    try {
-      const macros = await OpenRouterService.calculateMacros(
-        recipe.title,
-        recipe.ingredients.map(i => i.originalText || i.name),
-        recipe.servings || 1
-      );
-      Object.assign(recipe, macros);
-    } catch {
-      // Macro enrichment is opportunistic and should not fail imports.
+    if (publishedMacros) {
+      Object.assign(recipe, publishedMacros);
+    } else {
+      try {
+        const macros = await OpenRouterService.calculateMacros(
+          recipe.title,
+          recipe.ingredients.map(i => i.originalText || i.name),
+          recipe.servings || 1
+        );
+        Object.assign(recipe, macros);
+      } catch {
+        // Macro enrichment is opportunistic and should not fail imports.
+      }
     }
 
     return {
@@ -43,12 +49,7 @@ export class RecipeService {
   }
 
   private static extractPageText(html: string) {
-    let textContent = html
-      .replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, '')
-      .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gim, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    let textContent = this.htmlToText(html);
 
     if (textContent.length > 10000) {
       textContent = `${textContent.substring(0, 10000)}...`;
@@ -150,11 +151,12 @@ export class RecipeService {
     }
 
     const parsed = parsedRecipeSchema.safeParse({
-      title,
-      description: this.asString(value.description) || '',
+      title: this.cleanRecipeText(title),
+      description: this.cleanRecipeText(this.asString(value.description) || ''),
       servings: this.parseYield(value.recipeYield),
       prepTimeMinutes: this.parseDurationMinutes(value.prepTime),
       cookTimeMinutes: this.parseDurationMinutes(value.cookTime),
+      ...this.extractNutritionFromStructuredValue(value.nutrition),
       ingredients,
       instructions,
     });
@@ -166,6 +168,35 @@ export class RecipeService {
     return {
       ...parsed.data,
       imageUrl: this.normalizeImageUrl(this.extractImageCandidate(value.image), pageUrl),
+    };
+  }
+
+  private static cleanParsedRecipe(recipe: ParsedRecipe): ParsedRecipe {
+    return {
+      ...recipe,
+      title: this.cleanRecipeText(recipe.title),
+      description: this.cleanRecipeText(recipe.description),
+      ingredients: recipe.ingredients
+        .map((ingredient): ParsedIngredient | null => {
+          const originalText = this.cleanRecipeText(ingredient.originalText || ingredient.name);
+          const name = this.cleanRecipeText(ingredient.name || originalText);
+
+          if (!originalText || !name) {
+            return null;
+          }
+
+          return {
+            ...ingredient,
+            name,
+            originalText,
+            unit: this.cleanRecipeText(ingredient.unit || '') || null,
+            notes: this.cleanRecipeText(ingredient.notes || '') || null,
+          };
+        })
+        .filter((ingredient): ingredient is ParsedRecipe['ingredients'][number] => Boolean(ingredient)),
+      instructions: recipe.instructions
+        .map((step) => this.cleanRecipeText(step))
+        .filter(Boolean),
     };
   }
 
@@ -315,6 +346,35 @@ export class RecipeService {
     return typeof value === 'string' && value.trim() ? value.trim() : null;
   }
 
+
+  private static cleanRecipeText(value: string) {
+    return this.decodeHtmlEntities(value)
+      .replace(/\s*\((?:affiliate\s+link|sponsored\s+link|advertisement|ad|paid\s+link)\)\s*/gi, ' ')
+      .replace(/\s*\[(?:affiliate\s+link|sponsored\s+link|advertisement|ad|paid\s+link)\]\s*/gi, ' ')
+      .replace(/\b(?:affiliate\s+link|sponsored\s+link|advertisement|paid\s+link)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private static decodeHtmlEntities(value: string) {
+    return value
+      .replace(/&#x([0-9a-f]+);/gi, (_match, hex) => String.fromCodePoint(parseInt(hex, 16)))
+      .replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(parseInt(code, 10)))
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&quot;/gi, '"')
+      .replace(/&apos;/gi, "'")
+      .replace(/&#39;/g, "'")
+      .replace(/&rsquo;/gi, '’')
+      .replace(/&lsquo;/gi, '‘')
+      .replace(/&rdquo;/gi, '”')
+      .replace(/&ldquo;/gi, '“')
+      .replace(/&ndash;/gi, '–')
+      .replace(/&mdash;/gi, '—')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>');
+  }
+
   private static parseYield(value: unknown): number | null {
     if (typeof value === 'number' && Number.isFinite(value)) {
       return value;
@@ -366,6 +426,118 @@ export class RecipeService {
     return Number(numeric[1].replace(',', '.'));
   }
 
+
+  private static extractPublishedNutrition(html: string): MacroFields | null {
+    const structured = this.extractNutritionFromStructuredBlocks(html);
+    if (structured) {
+      return structured;
+    }
+
+    return this.extractNutritionFromVisibleText(html);
+  }
+
+  private static extractNutritionFromStructuredBlocks(html: string): MacroFields | null {
+    for (const block of this.extractJsonLdBlocks(html)) {
+      const recipeNode = this.findRecipeNode(block);
+      const nutrition = recipeNode ? this.extractNutritionFromStructuredValue(recipeNode.nutrition) : null;
+      if (nutrition) {
+        return nutrition;
+      }
+    }
+
+    return null;
+  }
+
+  private static extractNutritionFromStructuredValue(value: unknown): MacroFields | null {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+
+    const record = value as Record<string, unknown>;
+    const macros: MacroFields = {
+      caloriesPerServing: this.parseNutritionNumber(record.calories),
+      proteinPerServing: this.parseNutritionNumber(record.proteinContent),
+      carbsPerServing: this.parseNutritionNumber(record.carbohydrateContent),
+      fatPerServing: this.parseNutritionNumber(record.fatContent),
+    };
+
+    return this.hasAnyMacro(macros) ? macros : null;
+  }
+
+  private static extractNutritionFromVisibleText(html: string): MacroFields | null {
+    const text = this.htmlToText(html);
+    const nutritionIndex = text.search(/Nutrition\s*:\s*per\s+serving/i);
+    if (nutritionIndex < 0) {
+      return null;
+    }
+
+    const section = text.slice(nutritionIndex, nutritionIndex + 800);
+    const macros: MacroFields = {
+      caloriesPerServing: this.findNutritionValue(section, ['kcal', 'calories']),
+      fatPerServing: this.findNutritionValue(section, ['fat']),
+      carbsPerServing: this.findNutritionValue(section, ['carbs', 'carbohydrate', 'carbohydrates']),
+      proteinPerServing: this.findNutritionValue(section, ['protein']),
+    };
+
+    return this.hasAnyMacro(macros) ? macros : null;
+  }
+
+  private static htmlToText(html: string) {
+    const withoutHiddenNoise = html
+      .replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, ' ')
+      .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gim, ' ')
+      .replace(/<noscript\b[^>]*>([\s\S]*?)<\/noscript>/gim, ' ');
+
+    return this.cleanRecipeText(withoutHiddenNoise.replace(/<[^>]+>/g, ' '));
+  }
+
+  private static findNutritionValue(section: string, labels: string[]) {
+    for (const label of labels) {
+      const regex = new RegExp(`\\b${this.escapeRegExp(label)}\\b\\s*(\\d+(?:[.,]\\d+)?)`, 'i');
+      const match = section.match(regex);
+      if (match) {
+        return Number(match[1].replace(',', '.'));
+      }
+    }
+
+    return null;
+  }
+
+  private static parseNutritionNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const match = value.match(/(\d+(?:[.,]\d+)?)/);
+    return match ? Number(match[1].replace(',', '.')) : null;
+  }
+
+  private static pickMacroFields(recipe: ImportedRecipe | null | undefined): MacroFields | null {
+    if (!recipe) {
+      return null;
+    }
+
+    const macros: MacroFields = {
+      caloriesPerServing: recipe.caloriesPerServing ?? null,
+      proteinPerServing: recipe.proteinPerServing ?? null,
+      carbsPerServing: recipe.carbsPerServing ?? null,
+      fatPerServing: recipe.fatPerServing ?? null,
+    };
+
+    return this.hasAnyMacro(macros) ? macros : null;
+  }
+
+  private static hasAnyMacro(macros: MacroFields) {
+    return macros.caloriesPerServing != null
+      || macros.proteinPerServing != null
+      || macros.carbsPerServing != null
+      || macros.fatPerServing != null;
+  }
+
   private static normalizeIngredients(value: unknown): ParsedRecipe['ingredients'] {
     if (!Array.isArray(value)) {
       return [];
@@ -378,7 +550,7 @@ export class RecipeService {
 
   private static normalizeIngredient(value: unknown): ParsedRecipe['ingredients'][number] | null {
     if (typeof value === 'string') {
-      const text = value.trim();
+      const text = this.cleanRecipeText(value);
       if (!text) {
         return null;
       }
@@ -397,17 +569,17 @@ export class RecipeService {
     }
 
     const record = value as Record<string, unknown>;
-    const originalText = this.asString(record.text) || this.asString(record.name);
+    const originalText = this.cleanRecipeText(this.asString(record.text) || this.asString(record.name) || '');
     if (!originalText) {
       return null;
     }
 
     return {
-      name: this.asString(record.name) || originalText,
+      name: this.cleanRecipeText(this.asString(record.name) || originalText),
       originalText,
       quantity: typeof record.amount === 'number' ? record.amount : null,
-      unit: this.asString(record.unitText) || this.asString(record.unit),
-      notes: this.asString(record.comment),
+      unit: this.cleanRecipeText(this.asString(record.unitText) || this.asString(record.unit) || '') || null,
+      notes: this.cleanRecipeText(this.asString(record.comment) || '') || null,
     };
   }
 
@@ -419,7 +591,7 @@ export class RecipeService {
     if (typeof value === 'string') {
       return value
         .split(/\n+/)
-        .map((step) => step.trim())
+        .map((step) => this.cleanRecipeText(step))
         .filter(Boolean);
     }
 
@@ -433,7 +605,7 @@ export class RecipeService {
         return this.normalizeInstructions(record.itemListElement);
       }
 
-      const text = this.asString(record.text) || this.asString(record.name);
+      const text = this.cleanRecipeText(this.asString(record.text) || this.asString(record.name) || '');
       return text ? [text] : [];
     }
 

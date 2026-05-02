@@ -1142,8 +1142,10 @@ export const mealsApi = {
         },
         addToShopping: (date: string, listId: string, ingredients: string) =>
             request<any>(`/meals/${date}/add-to-shopping`, { method: 'POST', body: JSON.stringify({ list_id: listId, ingredients }) }),
-        generateShoppingFromRange: (start: string, end: string, listId: string) =>
-            request<any>('/meals/generate-shopping', { method: 'POST', body: JSON.stringify({ start, end, listId }) }),
+        previewShoppingFromRange: (start: string, end: string, listId: string) =>
+            request<any>('/meals/generate-shopping/preview', { method: 'POST', body: JSON.stringify({ start, end, listId }) }),
+        generateShoppingFromRange: (start: string, end: string, listId: string, decisions?: Array<{ key: string; action: 'add' | 'merge' | 'skip'; duplicateItemId?: string | null }>) =>
+            request<any>('/meals/generate-shopping', { method: 'POST', body: JSON.stringify({ start, end, listId, decisions }) }),
 };
 
 export const voiceApi = {

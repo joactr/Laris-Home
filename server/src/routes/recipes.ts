@@ -5,6 +5,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { sendError } from '../lib/api-error';
 import { createRateLimiter } from '../lib/rate-limit';
 import { RecipeService } from '../services/recipe.service';
+import { EmbeddingService } from '../services/embedding.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -166,11 +167,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       .split(',')
       .map((tag) => normalizeTagName(tag))
       .filter(Boolean);
+    const rawSearch = String(params.search || '').trim();
+    const search = rawSearch.toLowerCase();
+    const searchMode = String(params.searchMode || 'hybrid');
+    let embeddingParam: number | null = null;
+    let textParam: number | null = null;
+    let orderBy = 'r.created_at DESC';
 
-    if (params.search) {
-      values.push(`%${String(params.search).toLowerCase()}%`);
-      where.push(`(lower(r.title) LIKE $${values.length} OR lower(COALESCE(r.description, '')) LIKE $${values.length})`);
-    }
     if (params.favorite === 'true') {
       where.push('COALESCE(rup.is_favorite, false) = true');
     }
@@ -196,6 +199,48 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       )`);
     }
 
+    if (search) {
+      values.push(`%${search}%`);
+      textParam = values.length;
+      const textMatch = `(lower(r.title) LIKE $${textParam}
+        OR lower(COALESCE(r.description, '')) LIKE $${textParam}
+        OR EXISTS (SELECT 1 FROM recipe_ingredients ri_search WHERE ri_search.recipe_id = r.id AND lower(ri_search.name || ' ' || COALESCE(ri_search.original_text, '')) LIKE $${textParam})
+        OR EXISTS (
+          SELECT 1
+          FROM recipe_tag_assignments rta_search
+          JOIN recipe_tags rt_search ON rt_search.id = rta_search.tag_id
+          WHERE rta_search.recipe_id = r.id AND lower(rt_search.name) LIKE $${textParam}
+        ))`;
+
+      if (searchMode === 'hybrid' && search.length >= 3) {
+        try {
+          values.push(JSON.stringify(await EmbeddingService.generate(search)));
+          embeddingParam = values.length;
+          orderBy = `
+            (CASE
+              WHEN lower(r.title) LIKE $${textParam} THEN 4
+              WHEN EXISTS (SELECT 1 FROM recipe_ingredients ri_rank WHERE ri_rank.recipe_id = r.id AND lower(ri_rank.name || ' ' || COALESCE(ri_rank.original_text, '')) LIKE $${textParam}) THEN 3
+              WHEN EXISTS (
+                SELECT 1
+                FROM recipe_tag_assignments rta_rank
+                JOIN recipe_tags rt_rank ON rt_rank.id = rta_rank.tag_id
+                WHERE rta_rank.recipe_id = r.id AND lower(rt_rank.name) LIKE $${textParam}
+              ) THEN 2
+              WHEN lower(COALESCE(r.description, '')) LIKE $${textParam} THEN 1
+              ELSE 0
+            END) DESC,
+            semantic_distance ASC NULLS LAST,
+            r.created_at DESC`;
+        } catch (error) {
+          console.warn('Recipe semantic search unavailable; falling back to text search', error);
+          where.push(textMatch);
+        }
+      } else {
+        where.push(textMatch);
+      }
+    }
+
+    const semanticSelect = embeddingParam ? `, (r.embedding <=> $${embeddingParam}) AS semantic_distance` : ', NULL::float AS semantic_distance';
     const result = await pool.query(
       `SELECT r.*,
               COALESCE(rup.is_favorite, false) AS is_favorite,
@@ -205,6 +250,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
                 FILTER (WHERE rt.id IS NOT NULL),
                 '[]'
               ) AS tags
+              ${semanticSelect}
        FROM recipes r
        LEFT JOIN recipe_user_preferences rup
          ON rup.recipe_id = r.id AND rup.user_id = $2
@@ -212,11 +258,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
        LEFT JOIN recipe_tags rt ON rt.id = rta.tag_id
        WHERE ${where.join(' AND ')}
        GROUP BY r.id, rup.is_favorite, rup.rating
-       ORDER BY r.created_at DESC`,
+       ORDER BY ${orderBy}`,
       values
     );
     res.json(result.rows);
-  } catch {
+  } catch (error) {
+    console.error('Recipe search failed:', error);
     sendError(res, 500, 'INTERNAL_ERROR', 'Error al obtener las recetas.');
   }
 });

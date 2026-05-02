@@ -108,6 +108,8 @@ export class OpenRouterService {
     const systemMessage = `Eres un asistente especializado en extraer recetas de cocina estructuradas a partir de contenido desordenado de páginas web (HTML o texto).
 Siempre debes devolver toda la información en español: título, descripción, ingredientes, notas e instrucciones.
 Normaliza los nombres de los ingredientes a español natural (por ejemplo, “cebolla”, “ajo”, “aceite de oliva”, “pechuga de pollo”).
+Ignora y elimina cualquier ruido editorial o comercial que no sea parte de la receta: textos como "affiliate link", "sponsored", anuncios, recomendaciones de compra, enlaces de producto, notas de app, comentarios de usuarios o contenido promocional.
+Decodifica entidades HTML antes de responder (por ejemplo, &#x27; debe ser apóstrofo normal) y no incluyas símbolos HTML escapados en ningún campo.
 Devuelve ÚNICAMENTE un objeto JSON válido que siga exactamente este esquema:
 
 {

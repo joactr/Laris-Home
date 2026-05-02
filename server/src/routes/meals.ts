@@ -2,41 +2,43 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import {
+    ensureHouseholdListAccess,
+    findActiveDuplicateCandidates,
+    getHouseholdOwnedItem,
+    insertShoppingItem,
+    mergeShoppingItem,
+    normalizeShoppingInput,
+    type NormalizedShoppingItem,
+} from '../services/shopping.service';
 
 const router = Router();
 router.use(authMiddleware);
 
-const MealDaySchema = z.object({
-    date: z.string(),
-    breakfast: z.string().nullable().optional(),
-    lunch: z.string().nullable().optional(),
-    dinner: z.string().nullable().optional(),
-    snack: z.string().nullable().optional(),
-    breakfast_recipe_id: z.string().uuid().nullable().optional(),
-    lunch_recipe_id: z.string().uuid().nullable().optional(),
-    dinner_recipe_id: z.string().uuid().nullable().optional(),
-    snack_recipe_id: z.string().uuid().nullable().optional(),
-    notes: z.string().nullable().optional(),
+const GenerateShoppingDecisionSchema = z.object({
+    key: z.string().min(1),
+    action: z.enum(['add', 'merge', 'skip']),
+    duplicateItemId: z.string().uuid().nullable().optional(),
 });
 
 const GenerateShoppingSchema = z.object({
     start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     listId: z.string().uuid(),
+    decisions: z.array(GenerateShoppingDecisionSchema).optional(),
 });
 
-async function ensureHouseholdListAccess(listId: string, householdId: string) {
-    const { rows } = await pool.query(
-        'SELECT id FROM shopping_lists WHERE id = $1 AND household_id = $2',
-        [listId, householdId]
-    );
-    return rows.length > 0;
-}
+type MealShoppingPreviewItem = NormalizedShoppingItem & {
+    key: string;
+    sources: Array<{ mealItemId: string; date: string; mealType: string; recipeTitle: string; ingredientName: string }>;
+    candidates: any[];
+    defaultAction: 'add' | 'merge';
+    defaultDuplicateItemId: string | null;
+};
 
 // Get meal plan for a week
 router.get('/', async (req: AuthRequest, res: Response) => {
     const { start, end } = req.query;
-    // We group items by day and return an array of day objects
     let query = `
         SELECT m.date,
                json_agg(
@@ -59,14 +61,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         FROM meal_plan_items m
         LEFT JOIN recipes r ON m.recipe_id = r.id
         WHERE m.household_id=$1`;
-    
+
     const params: any[] = [req.user!.householdId];
-    if (start && end) { 
-        params.push(start, end); 
-        query += ' AND date >= $2 AND date <= $3'; 
+    if (start && end) {
+        params.push(start, end);
+        query += ' AND date >= $2 AND date <= $3';
     }
     query += ' GROUP BY m.date ORDER BY m.date';
-    
+
     const { rows } = await pool.query(query, params);
     res.json(rows);
 });
@@ -83,12 +85,11 @@ router.post('/:date/items', async (req: AuthRequest, res: Response) => {
     res.json(rows[0]);
 });
 
-// Update a meal item
 router.put('/items/:id', async (req: AuthRequest, res: Response) => {
     const { servings, text_content } = req.body;
     const { rows } = await pool.query(
-        `UPDATE meal_plan_items 
-         SET servings = COALESCE($1, servings), 
+        `UPDATE meal_plan_items
+         SET servings = COALESCE($1, servings),
              text_content = COALESCE($2, text_content),
              updated_at = NOW()
          WHERE id = $3 AND household_id = $4 RETURNING *`,
@@ -98,7 +99,6 @@ router.put('/items/:id', async (req: AuthRequest, res: Response) => {
     res.json(rows[0]);
 });
 
-// Delete a meal item
 router.delete('/items/:id', async (req: AuthRequest, res: Response) => {
     const { rows } = await pool.query(
         `DELETE FROM meal_plan_items WHERE id = $1 AND household_id = $2 RETURNING id`,
@@ -108,38 +108,75 @@ router.delete('/items/:id', async (req: AuthRequest, res: Response) => {
     res.json({ success: true, id: req.params.id });
 });
 
-// Add meal ingredients to shopping list
 router.post('/:date/add-to-shopping', async (req: AuthRequest, res: Response) => {
     const { list_id, ingredients } = req.body;
     if (!list_id || !ingredients) { res.status(400).json({ error: 'list_id and ingredients required' }); return; }
     const lines = (ingredients as string).split('\n').map((l: string) => l.trim()).filter(Boolean);
     const added = [];
     for (const line of lines) {
-        const { rows } = await pool.query(
-            `INSERT INTO list_items (list_id, name, added_by_user_id) VALUES ($1,$2,$3) RETURNING *`,
-            [list_id, line, req.user!.id]
-        );
-        added.push(rows[0]);
+        added.push(await insertShoppingItem(list_id, req.user!.id, { name: line }));
     }
     res.json(added);
 });
 
+router.post('/generate-shopping/preview', async (req: AuthRequest, res: Response) => {
+    const parsed = GenerateShoppingSchema.omit({ decisions: true }).safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+    const householdId = req.user!.householdId!;
+    const hasAccess = await ensureHouseholdListAccess(parsed.data.listId, householdId);
+    if (!hasAccess) { res.status(404).json({ error: 'List not found' }); return; }
+
+    const preview = await buildMealShoppingPreview(parsed.data.start, parsed.data.end, parsed.data.listId, householdId);
+    res.json(preview);
+});
+
 router.post('/generate-shopping', async (req: AuthRequest, res: Response) => {
     const parsed = GenerateShoppingSchema.safeParse(req.body);
-    if (!parsed.success) {
-        res.status(400).json({ error: parsed.error.flatten() });
-        return;
-    }
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
 
     const { start, end, listId } = parsed.data;
     const householdId = req.user!.householdId!;
-
     const hasAccess = await ensureHouseholdListAccess(listId, householdId);
-    if (!hasAccess) {
-        res.status(404).json({ error: 'List not found' });
-        return;
+    if (!hasAccess) { res.status(404).json({ error: 'List not found' }); return; }
+
+    const preview = await buildMealShoppingPreview(start, end, listId, householdId);
+    const decisions = new Map((parsed.data.decisions || []).map((decision) => [decision.key, decision]));
+    const addedItems = [];
+    const mergedItems = [];
+    let skippedCount = 0;
+
+    for (const item of preview.items) {
+        const decision = decisions.get(item.key);
+        const action = decision?.action || item.defaultAction;
+        if (action === 'skip') {
+            skippedCount += 1;
+            continue;
+        }
+
+        if (action === 'merge') {
+            const duplicateItemId = decision?.duplicateItemId || item.defaultDuplicateItemId;
+            const existingItem = duplicateItemId ? await getHouseholdOwnedItem(duplicateItemId, householdId) : null;
+            if (existingItem) {
+                mergedItems.push(await mergeShoppingItem(existingItem, req.user!.id, item, 'merge'));
+                continue;
+            }
+        }
+
+        addedItems.push(await insertShoppingItem(listId, req.user!.id, item));
     }
 
+    res.json({
+        addedCount: addedItems.length,
+        mergedCount: mergedItems.length,
+        skippedCount,
+        skippedTextMealsCount: preview.skippedTextMealsCount,
+        recipeMealCount: preview.recipeMealCount,
+        items: [...addedItems, ...mergedItems],
+    });
+});
+
+async function buildMealShoppingPreview(start: string, end: string, listId: string, householdId: string) {
     const [mealRowsResult, ingredientRowsResult] = await Promise.all([
         pool.query(
             `SELECT id, recipe_id
@@ -150,7 +187,10 @@ router.post('/generate-shopping', async (req: AuthRequest, res: Response) => {
         pool.query(
             `SELECT
                 mpi.id AS meal_item_id,
+                mpi.date,
+                mpi.meal_type,
                 mpi.servings AS meal_servings,
+                r.title AS recipe_title,
                 r.servings AS recipe_servings,
                 ri.name,
                 ri.quantity,
@@ -170,38 +210,67 @@ router.post('/generate-shopping', async (req: AuthRequest, res: Response) => {
 
     const skippedTextMealsCount = mealRowsResult.rows.filter((row) => !row.recipe_id).length;
     const recipeMealCount = mealRowsResult.rows.length - skippedTextMealsCount;
+    const groups = new Map<string, MealShoppingPreviewItem>();
 
-    const addedItems = [];
     for (const row of ingredientRowsResult.rows) {
         const mealServings = Number(row.meal_servings) || 1;
         const recipeServings = Number(row.recipe_servings);
         const baseQuantity = row.quantity == null ? null : Number(row.quantity);
-
         let scaledQuantity = baseQuantity;
-        if (
-            baseQuantity != null &&
-            Number.isFinite(baseQuantity) &&
-            Number.isFinite(recipeServings) &&
-            recipeServings > 0
-        ) {
+        if (baseQuantity != null && Number.isFinite(baseQuantity) && Number.isFinite(recipeServings) && recipeServings > 0) {
             scaledQuantity = Number((baseQuantity * mealServings / recipeServings).toFixed(2));
         }
 
-        const { rows } = await pool.query(
-            `INSERT INTO list_items (list_id, name, quantity, unit, added_by_user_id, notes)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             RETURNING *`,
-            [listId, row.name, scaledQuantity, row.unit ?? null, req.user!.id, row.notes ?? null]
-        );
-        addedItems.push(rows[0]);
+        const normalized = normalizeShoppingInput({
+            name: row.name,
+            quantity: scaledQuantity,
+            unit: row.unit ?? null,
+            notes: row.notes ?? null,
+        });
+        const key = `${normalized.normalized_name}::${normalized.unit || ''}`;
+        const current = groups.get(key);
+        const source = {
+            mealItemId: row.meal_item_id,
+            date: String(row.date).slice(0, 10),
+            mealType: row.meal_type,
+            recipeTitle: row.recipe_title,
+            ingredientName: row.name,
+        };
+
+        if (!current) {
+            groups.set(key, { ...normalized, key, sources: [source], candidates: [], defaultAction: 'add', defaultDuplicateItemId: null });
+            continue;
+        }
+
+        const canAdd = current.quantity != null && normalized.quantity != null && current.unit === normalized.unit;
+        groups.set(key, {
+            ...current,
+            quantity: canAdd ? Number((Number(current.quantity) + Number(normalized.quantity)).toFixed(2)) : current.quantity,
+            notes: [current.notes, normalized.notes].filter(Boolean).join('; ') || null,
+            sources: [...current.sources, source],
+        });
     }
 
-    res.json({
-        addedCount: addedItems.length,
-        skippedTextMealsCount,
+    const items = [];
+    for (const item of groups.values()) {
+        const candidates = await findActiveDuplicateCandidates(listId, item.normalized_name);
+        const compatible = candidates.find((candidate) => (candidate.unit || null) === (item.unit || null));
+        items.push({
+            ...item,
+            candidates,
+            defaultAction: compatible ? 'merge' as const : 'add' as const,
+            defaultDuplicateItemId: compatible?.id ?? null,
+        });
+    }
+
+    return {
+        start,
+        end,
+        listId,
         recipeMealCount,
-        items: addedItems,
-    });
-});
+        skippedTextMealsCount,
+        items,
+    };
+}
 
 export default router;
