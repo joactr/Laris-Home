@@ -6,7 +6,7 @@ The UI is available in English and Spanish (switch in the sidebar).
 
 ![Home](docs/screenshots/dashboard.png)
 
-> Screenshots are taken against a mocked API with sample data (no real household data). Recipe photos come from Wikimedia Commons; see [image credits](#image-credits).
+> Screenshots are taken against a mocked API with sample data (no real household data). Recipe photos come from Wikimedia Commons.
 
 ## Features
 
@@ -125,27 +125,6 @@ docker compose -f docker-compose.prod.yml up -d --build
 | `DB_BACKUP_INTERVAL_SECONDS`, `DB_BACKUP_RETENTION_DAYS` | Backups (defaults: every 24 h, keep 7 days) |
 
 The full list is in [`.env.example`](.env.example). Backups are written to `./backups/postgres`; to force one: `docker compose exec db-backup sh /usr/local/bin/backup.sh once`.
-
-## Tests
-
-```bash
-cd server && npm run test:unit   # no database needed
-cd server && npm test            # API tests against Postgres + pgvector
-cd client && npm run test:e2e    # Playwright smoke test
-```
-
-GitHub Actions runs typecheck, unit tests, migrations and the API tests against `pgvector/pgvector:pg16`, plus the client build. Coverage is what you'd expect from a personal project: the API routes are reasonably covered, the client only has a smoke test.
-
-## Known limitations
-
-- No password reset by email: an admin changes passwords from the app.
-- Recipe import depends on the site publishing structured data or on the LLM extracting the page text correctly.
-- Local embeddings increase the server's memory use.
-- The API (error messages, fallback daily summary, LLM-generated text) is English-only; only the client UI is translated, so some server-provided strings still show in English when the UI is set to Spanish.
-
-## Image credits
-
-The recipe photos in the screenshots are from Wikimedia Commons, used under CC BY-SA: Spanish omelette, gazpacho and Mediterranean salad by Juan Emilio Prades Bel (CC BY-SA 4.0); paella by Jan Harenburg (CC BY-SA 4.0); lentils by Marco Antonio Correa Flores (CC BY-SA 4.0); pasta al pomodoro by Alessio Sbarbaro (CC BY-SA 3.0).
 
 ## License
 
