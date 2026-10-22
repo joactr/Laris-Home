@@ -1,129 +1,152 @@
-# 🏠 Laris Home
+# Laris Home
 
-**Laris Home** is a modern, AI-powered household management system designed to streamline shared living tasks. More than just a to-do list, it leverages Large Language Models (LLMs) to automate the most tedious parts of home organization, like meal planning and recipe management.
+A web app for running a shared household: shopping lists, a calendar with household chores, a meal planner, a recipe book and small projects. It's a personal project I started so my partner and I would stop splitting this across four apps and chat threads, and it doubles as a way to work on a full stack (PWA, API, Postgres, LLMs, voice) with things that don't usually show up in a CRUD app.
 
-> [!NOTE]
-> This project is a Progressive Web App (PWA), fully mobile-responsive and optimized for a "native app" feel on both iOS and Android.
+The UI is available in English and Spanish (switch in the sidebar).
 
----
+![Home](docs/screenshots/dashboard.png)
 
-## ✨ Key Features
+> Screenshots are taken against a mocked API with sample data (no real household data). Recipe photos come from Wikimedia Commons; see [image credits](#image-credits).
 
-- **🧠 AI Recipe Extraction**: Transform messy web links into structured, categorized recipes using LLM parsing.
-- **🛒 Smart Shopping**: Automatically generate shopping lists from meal plans and categorize items by household needs.
-- 🎙️ **Voice Assistant**: Speak to your app directly! Add items to the shopping list or query your recipes using natural language. Fast, local processing powered by Deepgram ASR and a custom RAG (Retrieval-Augmented Generation) pipeline.
-- 🔍 **Semantic Search**: Find recipes by concepts, not just words. "Something with fish" will find your salmon recipes using local vector embeddings.
-- **📅 Interactive Calendar**: A shared timeline for chores, events, and important household milestones.
-- **📊 Macro-Tracking**: Detailed nutritional breakdown for every recipe, automatically calculated during the import process.
-- **🏗️ Project Management**: Break down complex home improvement or life goals into actionable subtasks.
-- **🔐 Multi-User Security**: Shared household access with secure JWT authentication and role-based views.
+## Features
 
----
+- **Multi-user households.** Each user belongs to a household with an admin or member role. There is no public sign-up: the first admin is created when the database is empty, and admins add everyone else.
+- **Shopping lists.** Multiple lists, categories, duplicate detection when adding an item (offers to merge) and "buy again" suggestions.
+- **Calendar.** Events (personal, shared, reminders) plus recurring household chores with points and a per-person scoreboard.
+- **Meal planner.** Weekly plan with kcal and macros per day, and a shopping list generated from the week's recipes (with preview and duplicate merging).
+- **Recipes.** Import from a URL, text and semantic search, favorites, ratings and tags.
+- **Projects.** Task board (to do / in progress / done) with priority, due date and assignee.
+- **Daily summary** on the home screen, written by an LLM with a plain fallback text when no AI provider is configured.
+- **Voice input** to add shopping items and to search or propose recipes.
+- **Installable PWA** with offline cache and web push notifications.
 
-## 🛠️ Tech Stack
+<table>
+  <tr>
+    <td><img src="docs/screenshots/mobile-dashboard.png" alt="Home on mobile" width="260"></td>
+    <td><img src="docs/screenshots/mobile-shopping.png" alt="Shopping list on mobile" width="260"></td>
+    <td><img src="docs/screenshots/mobile-recipes.png" alt="Recipes on mobile" width="260"></td>
+  </tr>
+</table>
 
-Laris Home is built with a focus on **Type Safety**, **Scalability**, and **Developer Experience**.
+## Screens
 
-| Layer | Technology | Key Highlights |
-|---|---|---|
-| **Frontend** | React 18 + TypeScript | Vite for lightning-fast HMR, Vanilla CSS for a bespoke design system. |
-| **State** | Zustand | Persistent auth and global application state. |
-| **Backend** | Node.js + Express | RESTful API built with TypeScript and Zod for strict schema validation. |
-| **Database** | PostgreSQL + pgvector | Efficient semantic search using vector similarity (cosine distance). |
-| **AI Layer** | OpenRouter & Deepgram | Leveraging advanced LLMs and Real-Time Voice-To-Text (ASR). |
-| **Embeddings** | Transformers.js | **Local execution** of `all-MiniLM-L6-v2` for 100% private, fast vector generation (no external API local calls). |
-| **Infra** | Docker | Seamless containerization for local development and deployment. |
+**Recipes.** Search, tags, favorites and ratings. The image is picked up from the source page on import.
 
----
+![Recipes](docs/screenshots/recipes.png)
 
-## 🚀 Getting Started
+**Recipe detail.** Ingredient checkboxes so only what you're missing goes to the shopping list, plus the method.
 
-### Prerequisites
-- [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/)
-- An [OpenRouter API Key](https://openrouter.ai/) (for AI features)
+![Recipe detail](docs/screenshots/recipe-detail.jpg)
 
-### 🐳 The One-Command Setup (Recommended)
+**Shopping list.** Several lists, filters, and who added each item.
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/[your-username]/laris-home.git
-   cd laris-home
-   ```
+![Shopping list](docs/screenshots/shopping.png)
 
-2. Configure environment variables. Copy the `.env.example` file to `.env` in the root directory:
-   ```bash
-   cp .env.example .env
-   ```
-   
-   Then open `.env` and configure your API keys:
-   ```bash
-   # Add your OpenRouter API Key and preferred model
-   OPENROUTER_API_KEY=your_openrouter_key_here
-   OPENROUTER_MODEL=minimax/minimax-m2.5
-   
-   # Add your Deepgram API Key for Voice Control
-   DEEPGRAM_API_KEY=your_deepgram_key_here
-   DEEPGRAM_LANGUAGE=es
-   DEEPGRAM_ENDPOINTING=2000
-   
-   # Setup Server Settings
-   JWT_SECRET=your_jwt_secret_here
-   ```
+**Calendar.** Month view with the selected day's events and chores.
 
-3. Spin up the entire stack:
-   ```bash
-   docker compose up --build
-   ```
+![Calendar](docs/screenshots/calendar.png)
 
-   This also starts an automatic Postgres backup sidecar that writes dumps to `./backups/postgres`.
+**Meal plan.** A full week with kcal per day and a shortcut to send a day's ingredients to the shopping list.
 
-4. Initialize the data:
-   ```bash
-   docker compose exec server npm run migrate
-   docker compose exec server npm run seed
-   ```
+![Meal plan](docs/screenshots/meals.png)
 
-Access the app at **http://localhost:5173**.
+**Projects.** Task board by status, with priority, due date and assignee.
 
-### Automatic Database Backups
+![Projects](docs/screenshots/projects.png)
 
-- A `db-backup` service creates a compressed Postgres dump on startup and then every 24 hours by default.
-- Backup files are written to `./backups/postgres`.
-- Old backups are pruned after `DB_BACKUP_RETENTION_DAYS` days.
-- You can tune the schedule with:
-  ```bash
-  DB_BACKUP_INTERVAL_SECONDS=86400
-  DB_BACKUP_RETENTION_DAYS=7
-  ```
-- You can trigger an extra manual backup at any time with:
-  ```bash
-  docker compose exec db-backup sh /usr/local/bin/backup.sh once
-  ```
+## Stack
 
----
+| Layer | Technology |
+| --- | --- |
+| Client | React 18, TypeScript, Vite, React Router, Zustand, dnd-kit, hand-written CSS (no UI framework) |
+| Server | Node.js, Express, TypeScript, Zod |
+| Database | PostgreSQL 16 with pgvector |
+| AI | OpenRouter (LLM), Deepgram (speech recognition), Transformers.js (local embeddings) |
+| Deployment | Docker Compose (dev, and prod with nginx) |
+| Quality | Vitest, Playwright, GitHub Actions |
 
-## 📖 Architecture Deep Dive
+## Technical decisions
 
-### AI Workflow (Recipe & Macro Extraction)
-The core "magic" happens in `server/src/services/openrouter.service.ts`. When a user provides a recipe link or text:
-1. The backend scrapes the raw content.
-2. An LLM (via OpenRouter) processes the unstructured text into a highly strictly typed JSON schema.
-3. The schema includes ingredients, instructions, and **nutritional macros**.
-4. Data is then persisted to PostgreSQL, linked to the user's household.
+**Recipe import that doesn't depend on an LLM.** When you import a URL, the server downloads the page and first tries to read the `Recipe` JSON-LD block, which most cooking blogs publish. Only if that's missing is the page text (capped at 10,000 characters) sent to an LLM to extract the recipe. Macros come from the published nutrition data and, if absent, are estimated by the LLM as an optional extra. Most imports are therefore fast, deterministic and free of token costs.
 
-### Voice & Semantic Search (RAG)
-Laris Home uses a privacy-first **Retrieval-Augmented Generation (RAG)** approach for recipes:
-1. **Local Embedding**: User voice commands are converted to vectors locally on your server using `MiniLM` (via ONNX Runtime). No recipe data is sent to external APIs for indexing.
-2. **Vector Similarity**: The system queries PostgreSQL using `pgvector` to find the top 10 most relevant recipes based on semantic meaning.
-3. **LLM Context**: Only the selected candidates are sent to the LLM (OpenRouter) as context, ensuring fast responses and high accuracy while keeping your full database private.
+**SSRF-safe fetching.** Since the server requests URLs typed by users, `server/src/lib/safe-fetch.ts` rejects private and local addresses, handles redirects manually, and caps response size and time.
 
-### Database Design
-The schema uses a robust relational model to support multiple households and membership roles, ensuring data isolation and security. Check `server/src/db/migrations/` for the implementation details.
+**Semantic search with local embeddings.** Each recipe is embedded with `all-MiniLM-L6-v2`, run inside the server through Transformers.js (384 dimensions), and stored in a `vector(384)` column with an HNSW index. Search combines text matching and cosine distance. There is no third-party embeddings API; the trade-off is that the first start downloads the model.
 
----
+**Voice in two steps.** Audio is transcribed with Deepgram (a cloud service, not local) and the transcript is then interpreted by an LLM into shopping items or a recipe command. When the model's answer isn't reliable, the response is flagged for review instead of saving doubtful data.
 
-## 📜 License & Credits
+**Offline use.** The client keeps recent reads in IndexedDB plus a queue of pending changes (shopping, calendar, meals, chores) that is replayed when the connection returns. The service worker caches the app shell and handles web push (VAPID).
 
-Distributed under the MIT License. See `LICENSE` for more information.
+**Validated, rate-limited API.** Inputs go through Zod schemas, errors share one format (`ApiErrorCode` in `shared/contracts.ts`, used by both client and server), expensive routes (voice, import) are rate limited, passwords are hashed with bcrypt, and auth is JWT.
 
-*Crafted with ❤️ by JM.*
+**Database.** 18 numbered SQL migrations and a sidecar that runs `pg_dump` on a schedule with configurable retention.
+
+**i18n.** UI strings live in per-area dictionaries (`client/src/i18n/locales`) for `es` and `en`, with the language persisted in `localStorage`. Dates use the matching `date-fns` locale.
+
+## Project layout
+
+```
+client/    React + Vite (PWA, pages, API client, offline cache)
+server/    Express (routes, services, SQL migrations, tests)
+shared/    Types shared by client and server
+ops/       Postgres backup sidecar
+docs/      Screenshots
+```
+
+## Getting started
+
+You need Docker and Docker Compose. `POSTGRES_PASSWORD` and `JWT_SECRET` are required; `OPENROUTER_API_KEY` and `DEEPGRAM_API_KEY` are only needed for the AI and voice features (everything else works without them).
+
+```bash
+cp .env.example .env        # then fill in POSTGRES_PASSWORD and JWT_SECRET
+docker compose up --build
+docker compose exec server npm run migrate
+```
+
+The app is served at http://localhost:5173. If the database is empty, the UI offers to create the first administrator (there is also `POST /api/auth/register-first-admin`, which stops working once a user exists).
+
+Production (nginx serving the client, port 8080):
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+`npm run seed` loads demo data and **deletes existing data**; don't run it against a real database.
+
+### Main environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `POSTGRES_PASSWORD`, `JWT_SECRET` | Required |
+| `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | LLM (import, summary, voice) |
+| `DEEPGRAM_API_KEY`, `DEEPGRAM_LANGUAGE` | Voice transcription |
+| `VAPID_*` | Web push notifications |
+| `EMBEDDINGS_PROVIDER` | Empty: local model. `mock`: fake vectors for tests |
+| `DB_BACKUP_INTERVAL_SECONDS`, `DB_BACKUP_RETENTION_DAYS` | Backups (defaults: every 24 h, keep 7 days) |
+
+The full list is in [`.env.example`](.env.example). Backups are written to `./backups/postgres`; to force one: `docker compose exec db-backup sh /usr/local/bin/backup.sh once`.
+
+## Tests
+
+```bash
+cd server && npm run test:unit   # no database needed
+cd server && npm test            # API tests against Postgres + pgvector
+cd client && npm run test:e2e    # Playwright smoke test
+```
+
+GitHub Actions runs typecheck, unit tests, migrations and the API tests against `pgvector/pgvector:pg16`, plus the client build. Coverage is what you'd expect from a personal project: the API routes are reasonably covered, the client only has a smoke test.
+
+## Known limitations
+
+- No password reset by email: an admin changes passwords from the app.
+- Recipe import depends on the site publishing structured data or on the LLM extracting the page text correctly.
+- Local embeddings increase the server's memory use.
+- The API (error messages, fallback daily summary, LLM-generated text) is English-only; only the client UI is translated, so some server-provided strings still show in English when the UI is set to Spanish.
+
+## Image credits
+
+The recipe photos in the screenshots are from Wikimedia Commons, used under CC BY-SA: Spanish omelette, gazpacho and Mediterranean salad by Juan Emilio Prades Bel (CC BY-SA 4.0); paella by Jan Harenburg (CC BY-SA 4.0); lentils by Marco Antonio Correa Flores (CC BY-SA 4.0); pasta al pomodoro by Alessio Sbarbaro (CC BY-SA 3.0).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
