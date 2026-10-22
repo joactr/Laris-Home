@@ -276,7 +276,7 @@ router.patch('/instances/:id/status', async (req: AuthRequest, res: Response) =>
     const { status } = parsed.data;
     const { rows } = await pool.query(
         `UPDATE chore_instances ci
-         SET status=$1, completed_at = CASE WHEN $1 = 'done' THEN NOW() ELSE NULL END
+         SET status=$1::text, completed_at = CASE WHEN $1::text = 'done' THEN NOW() ELSE NULL END
          FROM chore_templates ct
          WHERE ci.id=$2 AND ci.template_id = ct.id AND ct.household_id = $3
          RETURNING ci.*`,

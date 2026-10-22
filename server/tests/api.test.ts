@@ -587,13 +587,9 @@ describe('Rate limiting and recipe import', () => {
             fatPerServing: 99,
         });
 
-        vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-            if (url === 'https://example.com/tortilla') {
-                return {
-                    ok: true,
-                    url,
-                    text: async () => html,
-                };
+        vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+            if (String(url) === 'https://example.com/tortilla') {
+                return new Response(html, { status: 200 });
             }
 
             throw new Error('macro provider unavailable');
@@ -652,13 +648,9 @@ describe('Rate limiting and recipe import', () => {
             fatPerServing: null,
         });
 
-        vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-            if (url === 'https://example.com/meatballs') {
-                return {
-                    ok: true,
-                    url,
-                    text: async () => html,
-                };
+        vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
+            if (String(url) === 'https://example.com/meatballs') {
+                return new Response(html, { status: 200 });
             }
 
             throw new Error('unexpected fetch');
