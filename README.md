@@ -65,34 +65,6 @@ The UI is available in English and Spanish (switch in the sidebar).
 | Deployment | Docker Compose (dev, and prod with nginx) |
 | Quality | Vitest, Playwright, GitHub Actions |
 
-## Technical decisions
-
-**Recipe import that doesn't depend on an LLM.** When you import a URL, the server downloads the page and first tries to read the `Recipe` JSON-LD block, which most cooking blogs publish. Only if that's missing is the page text (capped at 10,000 characters) sent to an LLM to extract the recipe. Macros come from the published nutrition data and, if absent, are estimated by the LLM as an optional extra. Most imports are therefore fast, deterministic and free of token costs.
-
-**SSRF-safe fetching.** Since the server requests URLs typed by users, `server/src/lib/safe-fetch.ts` rejects private and local addresses, handles redirects manually, and caps response size and time.
-
-**Semantic search with local embeddings.** Each recipe is embedded with `all-MiniLM-L6-v2`, run inside the server through Transformers.js (384 dimensions), and stored in a `vector(384)` column with an HNSW index. Search combines text matching and cosine distance. There is no third-party embeddings API; the trade-off is that the first start downloads the model.
-
-**Voice in two steps.** Audio is transcribed with Deepgram (a cloud service, not local) and the transcript is then interpreted by an LLM into shopping items or a recipe command. When the model's answer isn't reliable, the response is flagged for review instead of saving doubtful data.
-
-**Offline use.** The client keeps recent reads in IndexedDB plus a queue of pending changes (shopping, calendar, meals, chores) that is replayed when the connection returns. The service worker caches the app shell and handles web push (VAPID).
-
-**Validated, rate-limited API.** Inputs go through Zod schemas, errors share one format (`ApiErrorCode` in `shared/contracts.ts`, used by both client and server), expensive routes (voice, import) are rate limited, passwords are hashed with bcrypt, and auth is JWT.
-
-**Database.** 18 numbered SQL migrations and a sidecar that runs `pg_dump` on a schedule with configurable retention.
-
-**i18n.** UI strings live in per-area dictionaries (`client/src/i18n/locales`) for `es` and `en`, with the language persisted in `localStorage`. Dates use the matching `date-fns` locale.
-
-## Project layout
-
-```
-client/    React + Vite (PWA, pages, API client, offline cache)
-server/    Express (routes, services, SQL migrations, tests)
-shared/    Types shared by client and server
-ops/       Postgres backup sidecar
-docs/      Screenshots
-```
-
 ## Getting started
 
 You need Docker and Docker Compose. `POSTGRES_PASSWORD` and `JWT_SECRET` are required; `OPENROUTER_API_KEY` and `DEEPGRAM_API_KEY` are only needed for the AI and voice features (everything else works without them).
