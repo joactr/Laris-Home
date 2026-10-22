@@ -1,37 +1,73 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../api';
 import { t } from '../../i18n';
+import type {
+  BuyAgainSuggestion,
+  ShoppingDuplicatePreview,
+  VoiceShoppingItem,
+} from '../../../../shared/contracts';
 import { useVoiceStore } from '../../store/voice';
 import ConfirmModal from '../../components/ConfirmModal';
 import StatusModal from '../../components/StatusModal';
 import { useOfflineStore } from '../../store/offline';
 import SectionHeader from '../../components/SectionHeader';
-import Surface from '../../components/Surface';
 import SegmentedControl from '../../components/SegmentedControl';
+import Icon from '../../components/Icon';
+import './Shopping.css';
 
 type Filter = 'all' | 'active' | 'completed';
 
+type ShoppingList = {
+  id: string;
+  name: string;
+};
+
+type ShoppingItem = {
+  id: string;
+  name: string;
+  quantity?: number | null;
+  unit?: string | null;
+  category?: string | null;
+  is_completed: boolean;
+  pending_sync?: boolean;
+  sync_error?: string | null;
+  added_by_name?: string | null;
+  added_by_color?: string | null;
+};
+
+type DuplicatePrompt = {
+  source: Record<string, unknown>;
+  normalized: ShoppingDuplicatePreview['item'];
+  candidate: ShoppingDuplicatePreview['candidates'][number];
+};
+
+function itemMeta(item: ShoppingItem): string {
+  const parts: string[] = [
+    item.quantity ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : t('shopUi.noQuantity'),
+  ];
+  if (item.category) parts.push(item.category);
+  if (item.pending_sync) parts.push(t('shopping.offlinePending'));
+  if (item.sync_error) parts.push(t('shopping.offlineError'));
+  return parts.join(' · ');
+}
+
 export default function Shopping() {
-  const [lists, setLists] = useState<any[]>([]);
+  const [lists, setLists] = useState<ShoppingList[]>([]);
   const [activeListId, setActiveListId] = useState<string>('');
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<ShoppingItem[]>([]);
   const [filter, setFilter] = useState<Filter>('all');
   const [newItem, setNewItem] = useState('');
   const [newQty, setNewQty] = useState('');
   const [loading, setLoading] = useState(true);
   const [showNewList, setShowNewList] = useState(false);
   const [newListName, setNewListName] = useState('');
-  const [pendingItems, setPendingItems] = useState<any[] | null>(null);
+  const [pendingItems, setPendingItems] = useState<VoiceShoppingItem[] | null>(null);
   const [voiceMessage, setVoiceMessage] = useState<string>('');
   const [confirmDeleteList, setConfirmDeleteList] = useState<string | null>(null);
   const [voiceTranscript, setVoiceTranscript] = useState('');
   const [voiceFallback, setVoiceFallback] = useState<{ message: string; transcript: string } | null>(null);
-  const [duplicatePrompt, setDuplicatePrompt] = useState<{
-    source: Record<string, unknown>;
-    normalized: any;
-    candidate: any;
-  } | null>(null);
-  const [buyAgain, setBuyAgain] = useState<any[]>([]);
+  const [duplicatePrompt, setDuplicatePrompt] = useState<DuplicatePrompt | null>(null);
+  const [buyAgain, setBuyAgain] = useState<BuyAgainSuggestion[]>([]);
   const isOffline = useOfflineStore((s) => s.isOffline);
   const pendingCount = useOfflineStore((s) => s.pendingCount);
 
@@ -134,9 +170,9 @@ export default function Shopping() {
           transcript: res.transcript || finalText,
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setVoiceFallback({
-        message: err.message || t('common.error'),
+        message: err instanceof Error ? err.message : t('common.error'),
         transcript: finalText,
       });
     }
@@ -148,11 +184,18 @@ export default function Shopping() {
     return () => voiceStore.unregister();
   }, [handleVoiceResult]);
 
-  const filtered = items.filter((item) =>
-    filter === 'all' ? true : filter === 'active' ? !item.is_completed : item.is_completed
-  );
+  const activeList = lists.find((list) => list.id === activeListId);
+  const activeItems = items.filter((item) => !item.is_completed);
+  const doneItems = items.filter((item) => item.is_completed);
+  const showActive = filter !== 'completed' ? activeItems : [];
+  const showDone = filter !== 'active' ? doneItems : [];
+  const isEmpty = showActive.length === 0 && showDone.length === 0;
+  const remainingCount = activeItems.length;
 
-  const remainingCount = items.filter((item) => !item.is_completed).length;
+  const groups: Array<{ key: string; title: string | null; items: ShoppingItem[]; done: boolean }> = [
+    { key: 'active', title: null, items: showActive, done: false },
+    { key: 'done', title: t('shopUi.bought'), items: showDone, done: true },
+  ].filter((group) => group.items.length > 0);
 
   if (loading) {
     return (
@@ -167,168 +210,180 @@ export default function Shopping() {
   return (
     <div className="page page-shopping">
       <SectionHeader
-        eyebrow="Compra"
         title={t('page.shopping')}
-        subtitle={`${remainingCount} ${t('shopping.itemsRemaining')}`}
-        actions={
-          <button type="button" className="btn btn-primary" onClick={() => setShowNewList(true)}>
-            {t('shopping.newList')}
-          </button>
-        }
+        subtitle={remainingCount === 1 ? t('shopUi.pendingOne', remainingCount) : t('shopUi.pendingMany', remainingCount)}
       />
 
-      <Surface className="shopping-toolbar">
-        <div className="shopping-toolbar-row">
-          <div className="list-pill-row">
+      {lists.length === 0 ? (
+        <p className="empty-state">
+          {t('shopping.createListFirst')}{' '}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowNewList(true)}>
+            {t('shopping.newListTitle')}
+          </button>
+        </p>
+      ) : (
+        <>
+          <div className="shopping-lists" role="tablist" aria-label={t('page.shopping')}>
             {lists.map((list) => (
               <button
                 key={list.id}
                 type="button"
-                className={`list-pill ${list.id === activeListId ? 'active' : ''}`}
+                role="tab"
+                aria-selected={list.id === activeListId}
+                className="shopping-list-tab"
                 onClick={() => setActiveListId(list.id)}
               >
-                <span>{list.name}</span>
-                {list.id === activeListId && lists.length > 1 ? (
-                  <span
-                    className="list-pill-delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setConfirmDeleteList(list.id);
-                    }}
-                  >
-                    ×
-                  </span>
-                ) : null}
+                {list.name}
               </button>
             ))}
-          </div>
-          {(isOffline || pendingCount > 0) && (
-            <div className="inline-status">
-              <span className={`status-dot ${isOffline ? 'offline' : 'syncing'}`} />
-              <span>{isOffline ? 'Modo offline' : `${pendingCount} cambios pendientes`}</span>
-            </div>
-          )}
-        </div>
-
-        <form onSubmit={addItem} className="shopping-entry-form">
-          <input
-            id="add-item-name"
-            className="input"
-            placeholder={t('shopping.addItemPlaceholder')}
-            value={newItem}
-            onChange={(e) => setNewItem(e.target.value)}
-            aria-label={t('shopping.addItemPlaceholder')}
-          />
-          <input
-            id="add-item-qty"
-            className="input shopping-qty-input"
-            placeholder={t('shopping.qtyLabel')}
-            value={newQty}
-            onChange={(e) => setNewQty(e.target.value)}
-            type="number"
-            min="0"
-            aria-label={t('shopping.qtyLabel')}
-          />
-          <button id="add-item-submit" type="submit" className="btn btn-primary">
-            {t('common.add')}
-          </button>
-        </form>
-
-        <SegmentedControl
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { value: 'all', label: t('shopping.filterAll') },
-            { value: 'active', label: t('shopping.filterActive') },
-            { value: 'completed', label: t('shopping.filterCompleted') },
-          ]}
-        />
-      </Surface>
-
-      <Surface title="Artículos" subtitle="Lista activa y sincronización">
-        {buyAgain.length > 0 ? (
-          <div className="suggestion-row">
-            <span>Comprar de nuevo:</span>
-            {buyAgain.slice(0, 5).map((suggestion) => (
+            <button type="button" className="shopping-create" onClick={() => setShowNewList(true)}>
+              <Icon name="plus" size={16} />
+              {t('shopUi.newList')}
+            </button>
+            {activeList && lists.length > 1 ? (
               <button
-                key={suggestion.normalized_name}
                 type="button"
-                className="chip"
-                onClick={() => void addSmartItem({
-                  name: suggestion.name,
-                  quantity: suggestion.quantity ? Number(suggestion.quantity) : undefined,
-                  unit: suggestion.unit || undefined,
-                  category: suggestion.category || undefined,
-                })}
+                className="icon-button"
+                onClick={() => setConfirmDeleteList(activeList.id)}
+                aria-label={t('shopUi.deleteListOf', activeList.name)}
               >
-                {suggestion.name}
+                <Icon name="trash" size={18} />
               </button>
-            ))}
+            ) : null}
           </div>
-        ) : null}
-        {filtered.length === 0 ? (
-          <p className="empty-state compact">{t('shopping.noItems')}</p>
-        ) : (
-          <div className="stack-list">
-            {filtered.map((item) => (
-              <div key={item.id} className={`shopping-row ${item.is_completed ? 'completed' : ''}`}>
+
+          {(isOffline || pendingCount > 0) && (
+            <p className="shopping-sync">
+              <span className={`status-dot ${isOffline ? 'offline' : 'syncing'}`} aria-hidden="true" />
+              {isOffline ? t('shopUi.offlineMode') : pendingCount === 1 ? t('shopUi.pendingChangesOne', pendingCount) : t('shopUi.pendingChangesMany', pendingCount)}
+            </p>
+          )}
+
+          <form onSubmit={addItem} className="shopping-add">
+            <input
+              id="add-item-name"
+              className="input shopping-add-name"
+              placeholder={t('shopping.addItemPlaceholder')}
+              value={newItem}
+              onChange={(e) => setNewItem(e.target.value)}
+              aria-label={t('shopping.addItemPlaceholder')}
+            />
+            <input
+              id="add-item-qty"
+              className="input"
+              placeholder={t('shopping.qtyLabel')}
+              value={newQty}
+              onChange={(e) => setNewQty(e.target.value)}
+              type="number"
+              min="0"
+              inputMode="decimal"
+              aria-label={t('shopping.qtyLabel')}
+            />
+            <button id="add-item-submit" type="submit" className="btn btn-primary">
+              {t('shopUi.addItemBtn')}
+            </button>
+          </form>
+
+          <SegmentedControl
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: 'all', label: t('shopping.filterAll') },
+              { value: 'active', label: t('shopping.filterActive') },
+              { value: 'completed', label: t('shopping.filterCompleted') },
+            ]}
+            className="shopping-filter"
+          />
+
+          {buyAgain.length > 0 ? (
+            <div className="shopping-suggest">
+              <span>{t('shopUi.buyAgain')}</span>
+              {buyAgain.slice(0, 5).map((suggestion) => (
                 <button
+                  key={suggestion.normalized_name}
                   type="button"
-                  className={`item-check ${item.is_completed ? 'checked' : ''}`}
-                  onClick={() => toggle(item.id)}
-                  id={`check-item-${item.id}`}
-                  aria-label={item.is_completed ? t('common.unmark') : t('common.mark')}
+                  className="shopping-suggest-btn"
+                  onClick={() => void addSmartItem({
+                    name: suggestion.name,
+                    quantity: suggestion.quantity ? Number(suggestion.quantity) : undefined,
+                    unit: suggestion.unit || undefined,
+                    category: suggestion.category || undefined,
+                  })}
                 >
-                  {item.is_completed ? (
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <polyline points="2,6 5,9 10,3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    </svg>
-                  ) : null}
+                  {suggestion.name}
                 </button>
+              ))}
+            </div>
+          ) : null}
 
-                <div className="shopping-row-copy">
-                  <div className={`item-name ${item.is_completed ? 'completed' : ''}`}>{item.name}</div>
-                  <div className="item-meta">
-                    {item.quantity ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : 'Sin cantidad'}
-                    {item.category ? ` · ${item.category}` : ''}
-                    {item.pending_sync ? ` · ${t('shopping.offlinePending')}` : ''}
-                    {item.sync_error ? ` · ${t('shopping.offlineError')}` : ''}
-                  </div>
-                </div>
-
-                <div className="shopping-row-actions">
-                  {item.added_by_name ? (
-                    <span className="avatar" style={{ background: item.added_by_color }} title={item.added_by_name}>
-                      {item.added_by_name[0]}
-                    </span>
-                  ) : null}
-                  {item.is_completed ? (
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => reAdd(item.id)}>
-                      ↩
+          {groups.map((group) => (
+            <section key={group.key} aria-label={group.title ?? t('shopUi.pending')}>
+              {group.title && filter === 'all' && groups.length > 1 ? (
+                <h2 className="shopping-bought-title">{group.title}</h2>
+              ) : null}
+              <ul className="shopping-list">
+                {group.items.map((item) => (
+                  <li key={item.id} className={`shopping-item${group.done ? ' done' : ''}`}>
+                    {group.done ? (
+                      <button
+                        type="button"
+                        className="icon-button"
+                        onClick={() => void reAdd(item.id)}
+                        aria-label={t('common.readd')}
+                      >
+                        <Icon name="undo" size={18} />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="shopping-check"
+                        id={`check-item-${item.id}`}
+                        onClick={() => void toggle(item.id)}
+                        aria-label={t('common.mark')}
+                      >
+                        <span className="shopping-check-circle" aria-hidden="true" />
+                      </button>
+                    )}
+                    <div className="shopping-item-copy">
+                      <div className="shopping-item-name">{item.name}</div>
+                      <div className="shopping-item-meta">{itemMeta(item)}</div>
+                    </div>
+                    {item.added_by_name ? (
+                      <span className="avatar" style={{ background: item.added_by_color ?? undefined }} title={item.added_by_name}>
+                        {item.added_by_name[0]}
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="icon-button shopping-delete"
+                      onClick={() => void remove(item.id)}
+                      aria-label={`${t('common.delete')}: ${item.name}`}
+                    >
+                      <Icon name="trash" size={18} />
                     </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => remove(item.id)}
-                    style={{ color: 'var(--red)' }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Surface>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+
+          {isEmpty ? (
+            <p className="empty-state">
+              {filter === 'completed'
+                ? t('shopUi.emptyDone')
+                : t('shopUi.emptyActive')}
+            </p>
+          ) : null}
+        </>
+      )}
 
       {showNewList ? (
         <div className="modal-overlay" onClick={() => setShowNewList(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title">{t('shopping.newListTitle')}</span>
-              <button className="modal-close touch-target" onClick={() => setShowNewList(false)} aria-label={t('common.close')}>
-                ×
+              <button type="button" className="modal-close touch-target" onClick={() => setShowNewList(false)} aria-label={t('common.close')}>
+                <Icon name="close" size={18} />
               </button>
             </div>
             <form onSubmit={createList}>
@@ -363,8 +418,8 @@ export default function Shopping() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title">{t('shopping.confirmItems')}</span>
-              <button className="modal-close touch-target" onClick={() => setPendingItems(null)} aria-label={t('common.close')}>
-                ×
+              <button type="button" className="modal-close touch-target" onClick={() => setPendingItems(null)} aria-label={t('common.close')}>
+                <Icon name="close" size={18} />
               </button>
             </div>
             <div className="modal-body">
@@ -410,15 +465,14 @@ export default function Shopping() {
         <div className="modal-overlay" onClick={() => setDuplicatePrompt(null)}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Artículo duplicado</span>
-              <button className="modal-close touch-target" onClick={() => setDuplicatePrompt(null)} aria-label={t('common.close')}>
-                ×
+              <span className="modal-title">{t('shopUi.duplicateTitle')}</span>
+              <button type="button" className="modal-close touch-target" onClick={() => setDuplicatePrompt(null)} aria-label={t('common.close')}>
+                <Icon name="close" size={18} />
               </button>
             </div>
             <div className="modal-body">
               <p>
-                Ya tienes <strong>{duplicatePrompt.candidate.name}</strong> en la lista. ¿Quieres fusionarlo con{' '}
-                <strong>{duplicatePrompt.normalized.quantity || 1} {duplicatePrompt.normalized.unit || ''} {duplicatePrompt.normalized.name}</strong>?
+                {t('shopUi.duplicateBody', duplicatePrompt.candidate.name, `${duplicatePrompt.normalized.quantity || 1} ${duplicatePrompt.normalized.unit || ''} ${duplicatePrompt.normalized.name}`.trim())}
               </p>
               <div className="modal-actions">
                 <button
@@ -430,7 +484,7 @@ export default function Shopping() {
                     await loadItems();
                   }}
                 >
-                  Añadir aparte
+                  {t('shopUi.addSeparate')}
                 </button>
                 <button
                   type="button"
@@ -441,7 +495,7 @@ export default function Shopping() {
                     await loadItems();
                   }}
                 >
-                  Reemplazar
+                  {t('shopUi.replace')}
                 </button>
                 <button
                   type="button"
@@ -452,7 +506,7 @@ export default function Shopping() {
                     await loadItems();
                   }}
                 >
-                  Fusionar
+                  {t('shopUi.merge')}
                 </button>
               </div>
             </div>

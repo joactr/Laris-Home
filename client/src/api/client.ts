@@ -1,5 +1,6 @@
 import { useAuthStore } from '../store/auth';
 import { useOfflineStore } from '../store/offline';
+import { t } from '../i18n';
 import type {
     ApiErrorPayload,
     AuthUser,
@@ -1007,7 +1008,7 @@ export const choresApi = {
             }
 
             if (!previousChore) {
-                throw new Error('Tarea no encontrada en caché');
+                throw new Error(t('shell.choreNotCached'));
             }
 
             const optimisticChore = {
@@ -1099,7 +1100,7 @@ export const mealsApi = {
             }
 
             if (!previousItem) {
-                throw new Error('Comida no encontrada en caché');
+                throw new Error(t('shell.mealNotCached'));
             }
 
             const optimisticItem = {

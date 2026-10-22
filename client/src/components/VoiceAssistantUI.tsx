@@ -35,21 +35,35 @@ export default function VoiceAssistantUI() {
 
   return (
     <>
-      <button 
-        className={`voice-fab ${isListening ? 'listening' : ''} ${isProcessing ? 'processing' : ''}`}
+      <button
+        type="button"
+        className={`icon-button voice-button ${isListening ? 'listening' : ''} ${isProcessing ? 'processing' : ''}`}
         onClick={handleToggle}
-        aria-label={t('voice.accessibility.toggle', 'Alternar asistente de voz')}
+        aria-label={t('voice.accessibility.toggle')}
+        aria-pressed={isListening}
+        disabled={isProcessing}
       >
-        {isProcessing ? '⏳' : isListening ? '⏹' : '🎤'}
+        {isProcessing ? (
+          <span className="spinner spinner-sm" aria-hidden="true" />
+        ) : isListening ? (
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <rect x="6" y="6" width="12" height="12" rx="2" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="9" y="3" width="6" height="12" rx="3" />
+            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+          </svg>
+        )}
       </button>
 
       {(isListening || isProcessing) && (
-        <div className="voice-status-overlay">
+        <div className="voice-status-overlay" role="status">
           <div className="voice-status-header">
             {isProcessing ? t('voice.processing') : t('voice.listening')}
           </div>
           <div className="voice-status-transcript">
-            {transcript || placeholder || t('voice.placeholder.generic', 'Di algo...')}
+            {transcript || placeholder || t('voice.placeholder.generic')}
           </div>
         </div>
       )}

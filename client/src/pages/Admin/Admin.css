@@ -1,0 +1,54 @@
+.admin-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--surface-border);
+}
+
+.admin-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.admin-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--bg-soft);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.admin-copy {
+  display: flex;
+  flex: 1 1 160px;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.admin-copy strong,
+.admin-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-copy span {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.admin-row .btn {
+  margin-left: auto;
+  min-height: 40px;
+}

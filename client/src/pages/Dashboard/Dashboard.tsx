@@ -1,21 +1,21 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { api } from '../../api';
 import { useAuthStore } from '../../store/auth';
 import { useOfflineStore } from '../../store/offline';
 import { toastError } from '../../store/toast';
-import CollapsiblePanel from '../../components/CollapsiblePanel';
-import SectionHeader from '../../components/SectionHeader';
-import Surface from '../../components/Surface';
+import Icon from '../../components/Icon';
+import { t } from '../../i18n';
+import { dateFormats, dateLocale } from '../../i18n/date';
 import type { DashboardPayload, DashboardSummary } from '../../../../shared/contracts';
+import './Dashboard.css';
 
 const QUICK_ACTIONS = [
-  { path: '/shopping', label: 'Añadir compra', hint: 'Ve a la lista activa y apunta lo que falta.' },
-  { path: '/calendar', label: 'Abrir agenda', hint: 'Revisa hoy y crea eventos o tareas desde una sola vista.' },
-  { path: '/meals', label: 'Planificar comida', hint: 'Completa el día o la semana sin salir del flujo.' },
-  { path: '/recipes', label: 'Buscar receta', hint: 'Encuentra una receta o importa una nueva.' },
+  { path: '/shopping', key: 'dash.quickShopping' },
+  { path: '/calendar', key: 'dash.quickAgenda' },
+  { path: '/meals', key: 'dash.quickMeals' },
+  { path: '/recipes', key: 'dash.quickRecipes' },
 ];
 
 export default function Dashboard() {
@@ -24,50 +24,29 @@ export default function Dashboard() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [openPanel, setOpenPanel] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return 'attention';
-    return window.localStorage.getItem('dashboard:open-panel') || 'attention';
-  });
   const user = useAuthStore((s) => s.user);
   const isOffline = useOfflineStore((s) => s.isOffline);
   const pendingCount = useOfflineStore((s) => s.pendingCount);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (openPanel) {
-      window.localStorage.setItem('dashboard:open-panel', openPanel);
-    } else {
-      window.localStorage.removeItem('dashboard:open-panel');
+  const loadDashboard = useCallback(async () => {
+    setLoading(true);
+    try {
+      const nextData = await api.dashboard.get();
+      setData(nextData);
+      setError(null);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('dash.loadTodayFailed');
+      setError(message);
+      toastError(t('dash.loadHomeFailed'), message);
+    } finally {
+      setLoading(false);
     }
-  }, [openPanel]);
+  }, []);
 
   useEffect(() => {
-    let active = true;
-
-    const load = async () => {
-      try {
-        const nextData = await api.dashboard.get();
-        if (!active) return;
-        setData(nextData);
-        setError(null);
-      } catch (err: unknown) {
-        if (!active) return;
-        const message = err instanceof Error ? err.message : 'No se pudo cargar el resumen de hoy.';
-        setError(message);
-        toastError('No se pudo cargar la home', message);
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void load();
-    return () => {
-      active = false;
-    };
-  }, []);
+    void loadDashboard();
+  }, [loadDashboard]);
 
   useEffect(() => {
     if (loading || isOffline) {
@@ -130,7 +109,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (isOffline) {
       setSummary({
-        text: 'Sin conexión. El resumen inteligente aparecerá cuando la app vuelva a sincronizar.',
+        text: t('dash.offlineSummary'),
         mode: 'fallback',
         status: 'ready',
         generated_at: null,
@@ -146,326 +125,303 @@ export default function Dashboard() {
   }, [summary?.status]);
 
   const todayLabel = useMemo(
-    () => format(new Date(), "EEEE, d 'de' MMMM", { locale: es }),
+    () => format(new Date(), dateFormats.weekdayCommaDayMonth(), { locale: dateLocale() }),
     []
   );
 
-  const mealEntries = Object.entries(data?.meals || {});
-  const stats = [
-    { label: 'Eventos hoy', value: data?.stats?.events ?? 0 },
-    { label: 'Tareas casa', value: data?.stats?.chores ?? 0 },
-    { label: 'Compra pendiente', value: data?.stats?.shoppingPending ?? 0 },
-    { label: 'Proyectos atrasados', value: data?.stats?.overdueTasks ?? 0 },
-  ];
+  const mealEntries = Object.entries(data?.meals ?? {});
+  const attentionItems = data?.attention_items ?? [];
+  const overdueTasks = data?.overdue_tasks ?? [];
+  const activity = data?.activity ?? [];
+  const chores = data?.chores ?? [];
+  const events = useMemo(
+    () => [...(data?.events ?? [])].sort(
+      (a, b) => new Date(a.start_datetime).getTime() - new Date(b.start_datetime).getTime()
+    ),
+    [data]
+  );
 
-  const togglePanel = (panelId: string) => {
-    setOpenPanel((current) => (current === panelId ? null : panelId));
-  };
+  const todayAgendaCount = events.length + chores.length;
+  const attentionCount = attentionItems.length + overdueTasks.length;
+  const shoppingPending = data?.stats?.shoppingPending ?? 0;
 
-  const todayAgendaCount = (data?.events?.length || 0) + (data?.chores?.length || 0);
+  const showSummarySkeleton = (loading || (summaryLoading && !summary?.text)) && !error;
+  const summaryText = error
+    ? t('dash.summaryError')
+    : summary?.text || t('dash.summaryFallback');
 
   return (
-    <div className="page page-dashboard">
-      <SectionHeader
-        eyebrow="Entrada diaria"
-        title={`${getGreeting()}, ${user?.name ?? ''}`}
-        subtitle={todayLabel}
-      />
+    <div className="page today-page">
+      <header className="today-head">
+        <h1 className="today-title">{`${t(getGreetingKey())}, ${user?.name ?? ''}`}</h1>
+        <p className="today-date">{todayLabel}</p>
+      </header>
 
-      <Surface className="dashboard-summary-surface">
-        <div className="dashboard-summary-shell">
-          <div className="dashboard-summary-copy">
-            <span className="summary-pill">
-              {summary?.mode === 'ai' ? 'Resumen inteligente' : 'Resumen del día'}
-            </span>
-            <h2>Lo importante al entrar</h2>
-            {(loading || (summaryLoading && !summary?.text)) && !error ? (
-              <div className="summary-skeleton">
-                <span className="summary-skeleton-line wide" />
-                <span className="summary-skeleton-line" />
-                <span className="summary-skeleton-line short" />
-              </div>
-            ) : (
-              <p>
-                {error
-                  ? 'No he podido montar el resumen completo. Aun así puedes entrar directamente a agenda, compra o comidas.'
-                  : summary?.text || 'Hoy está despejado. Puedes aprovechar para planificar comidas, revisar la compra o adelantar tareas.'}
-              </p>
-            )}
-            {summary?.status === 'pending' && !isOffline ? (
-              <div className="summary-loading-state" aria-live="polite">
-                <div className="summary-loading-bar" />
-                <span>{summaryLoading ? 'La IA está refinando el resumen con los cambios del día…' : 'Preparando resumen inteligente…'}</span>
-              </div>
-            ) : null}
-            <div className="dashboard-summary-meta">
-              {isOffline ? <span>Modo sin conexión activo</span> : <span>Datos del hogar en tiempo real</span>}
-              {pendingCount > 0 ? <span>{pendingCount} cambio{pendingCount === 1 ? '' : 's'} pendiente{pendingCount === 1 ? '' : 's'}</span> : null}
-            </div>
+      <section className="today-summary" aria-live="polite">
+        {showSummarySkeleton ? (
+          <div className="today-skeleton today-summary-skeleton" aria-hidden="true">
+            <span />
+            <span />
+            <span />
           </div>
+        ) : (
+          <p>{summaryText}</p>
+        )}
+        {summary?.status === 'pending' && !isOffline ? (
+          <p className="today-summary-status">
+            {summaryLoading ? t('dash.refining') : t('dash.preparing')}
+          </p>
+        ) : null}
+        {isOffline || pendingCount > 0 ? (
+          <p className="today-sync-line">
+            {isOffline ? t('dash.offline') : ''}
+            {pendingCount > 0 ? t(pendingCount === 1 ? 'dash.pendingOne' : 'dash.pendingMany', pendingCount) : null}
+          </p>
+        ) : null}
+      </section>
 
-          <div className="dashboard-stat-grid">
-            {stats.map((item) => (
-              <div key={item.label} className="dashboard-stat-card">
-                <strong>{loading ? '...' : item.value}</strong>
-                <span>{item.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Surface>
-
-      <div className="dashboard-quick-grid">
+      <nav className="today-actions" aria-label={t('dash.quickActions')}>
         {QUICK_ACTIONS.map((action) => (
           <button
             key={action.path}
             type="button"
-            className="dashboard-quick-card"
+            className="btn btn-secondary"
             onClick={() => navigate(action.path)}
           >
-            <strong>{action.label}</strong>
-            <span>{action.hint}</span>
+            {t(action.key)}
           </button>
         ))}
-      </div>
+      </nav>
 
-      <div className="dashboard-panel-stack">
-        <CollapsiblePanel
-          id="dashboard-attention-panel"
-          title="Requiere atención"
-          subtitle="Siguientes pasos claros para no perder tiempo"
-          open={openPanel === 'attention'}
-          onToggle={() => togglePanel('attention')}
-          summary={
-            <DashboardPanelSummary
-              primary={`${data?.attention_items?.length || 0} pendientes`}
-              secondary={(data?.attention_items?.[0]?.title || '').slice(0, 42)}
-            />
-          }
-        >
-          {loading && !data ? (
-            <div className="dashboard-activity-list">
-              {Array.from({ length: 3 }, (_, index) => (
-                <div key={index} className="activity-row static skeleton-row" />
-              ))}
-            </div>
-          ) : data?.attention_items?.length ? (
-            <div className="dashboard-action-list">
-              {data.attention_items.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`attention-row ${item.tone || 'info'}`}
-                  onClick={() => navigate(item.path)}
-                >
-                  <div>
-                    <strong>{item.title}</strong>
-                    <p>{item.hint}</p>
+      {error && !data && !loading ? (
+        <div className="today-error" role="alert">
+          <p>{t('dash.loadError')}</p>
+          <button type="button" className="btn btn-secondary" onClick={() => void loadDashboard()}>
+            {t('common.retry')}
+          </button>
+        </div>
+      ) : null}
+
+      {(data || loading) && !(error && !data) ? (
+        <div className="today-grid">
+          <div className="today-main">
+            <section className="today-block" aria-labelledby="today-agenda-title">
+              <h2 id="today-agenda-title">
+                {t('dash.today')}{' '}<span className="today-count">{t(todayAgendaCount === 1 ? 'dash.itemsOne' : 'dash.itemsMany', todayAgendaCount)}</span>
+              </h2>
+              {loading && !data ? (
+                <div className="today-skeleton" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              ) : todayAgendaCount > 0 ? (
+                <ul className="today-list">
+                  {events.map((event) => (
+                    <li key={event.id}>
+                      <button type="button" className="today-row" onClick={() => navigate('/calendar')}>
+                        <span className="today-time">{format(new Date(event.start_datetime), 'HH:mm')}</span>
+                        <span
+                          className="today-dot"
+                          aria-hidden="true"
+                          style={event.created_by_color ? { backgroundColor: event.created_by_color } : undefined}
+                        />
+                        <span className="today-row-main">
+                          <span className="today-row-title">{event.title}</span>
+                          <span className="today-row-sub">
+                            {event.assigned_name ? t('dash.with', event.assigned_name) : t('dash.sharedEvent')}
+                          </span>
+                        </span>
+                        <Icon name="chevronRight" size={16} className="today-row-chevron" aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                  {chores.map((chore) => (
+                    <li key={chore.id}>
+                      <button type="button" className="today-row" onClick={() => navigate('/calendar')}>
+                        <span
+                          className="today-dot"
+                          aria-hidden="true"
+                          style={chore.assigned_color ? { backgroundColor: chore.assigned_color } : undefined}
+                        />
+                        <span className="today-row-main">
+                          <span className="today-row-title">{chore.title}</span>
+                          <span className="today-row-sub">
+                            {chore.assigned_name ? t('dash.with', chore.assigned_name) : chore.location || t('dash.homeChore')}
+                          </span>
+                        </span>
+                        <span className={`status-badge ${chore.status === 'done' ? 'done' : 'pending'}`}>
+                          {chore.status === 'done' ? t('dash.done') : t('dash.pending')}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <TodayEmpty
+                  title={t('dash.agendaEmptyTitle')}
+                  copy={t('dash.agendaEmptyCopy')}
+                  actionLabel={t('dash.addInAgenda')}
+                  onAction={() => navigate('/calendar')}
+                />
+              )}
+            </section>
+
+            <section className="today-block" aria-labelledby="today-attention-title">
+              <h2 id="today-attention-title">
+                {t('dash.attention')}{' '}<span className="today-count">{t('dash.attentionOne', attentionCount)}</span>
+              </h2>
+              {loading && !data ? (
+                <div className="today-skeleton" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              ) : attentionCount > 0 ? (
+                <>
+                  {attentionItems.length > 0 ? (
+                    <ul className="today-list">
+                      {attentionItems.map((item) => (
+                        <li key={item.id}>
+                          <button type="button" className="today-row" onClick={() => navigate(item.path)}>
+                            <span className="today-row-main">
+                              <span className="today-row-title">{item.title}</span>
+                              <span className="today-row-sub">{item.hint}</span>
+                            </span>
+                            <Icon name="chevronRight" size={16} className="today-row-chevron" aria-hidden="true" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {overdueTasks.length > 0 ? (
+                    <ul className="today-list">
+                      {overdueTasks.map((task) => (
+                        <li key={task.id}>
+                          <button type="button" className="today-row" onClick={() => navigate('/projects')}>
+                            <span className="today-row-main">
+                              <span className="today-row-title">{task.title}</span>
+                              <span className="today-row-sub">{task.project_name || t('dash.projectFallback')}</span>
+                            </span>
+                            <span className="today-row-side">{translatePriority(task.priority)}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              ) : (
+                <div className="empty-state">
+                  <p className="today-empty-title">{t('dash.calmTitle')}</p>
+                  <p>{t('dash.calmCopy')}</p>
+                  <div className="today-empty-actions">
+                    <button type="button" className="btn btn-secondary" onClick={() => navigate('/meals')}>
+                      {t('dash.goMeals')}
+                    </button>
+                    <button type="button" className="btn btn-ghost" onClick={() => navigate('/projects')}>
+                      {t('dash.viewProjects')}
+                    </button>
                   </div>
-                  <span>Abrir</span>
+                </div>
+              )}
+            </section>
+          </div>
+
+          <div className="today-aside">
+            <section className="today-block" aria-labelledby="today-meals-title">
+              <h2 id="today-meals-title">
+                {t('dashboard.todayMeals')}{' '}<span className="today-count">{t(mealEntries.length === 1 ? 'dash.mealsOne' : 'dash.mealsMany', mealEntries.length)}</span>
+              </h2>
+              {loading && !data ? (
+                <div className="today-skeleton" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              ) : mealEntries.length > 0 ? (
+                <ul className="today-list">
+                  {mealEntries.map(([mealType, value]) => (
+                    <li key={mealType} className="today-row">
+                      <span className="today-row-main">
+                        <span className="today-row-sub">{translateMealType(mealType)}</span>
+                        <span className="today-row-title">{value}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <TodayEmpty
+                  title={t('dashboard.noMeals')}
+                  copy={t('dash.planTodayCopy')}
+                  actionLabel={t('dash.planNow')}
+                  onAction={() => navigate('/meals')}
+                />
+              )}
+              {mealEntries.length > 0 ? (
+                <button type="button" className="btn btn-ghost today-block-link" onClick={() => navigate('/meals')}>
+                  {t('dash.openMealPlan')}
                 </button>
-              ))}
-            </div>
-          ) : (
-            <EmptyPrompt
-              title="Nada urgente ahora mismo"
-              copy="La casa está tranquila. Puedes usar este momento para planificar comidas o limpiar tu lista de compra."
-              actionLabel="Ir a comidas"
-              onAction={() => navigate('/meals')}
-            />
-          )}
-        </CollapsiblePanel>
+              ) : null}
+            </section>
 
-        <CollapsiblePanel
-          id="dashboard-activity-panel"
-          title="Actividad reciente"
-          subtitle="Próximos eventos, compra pendiente y señales útiles"
-          open={openPanel === 'activity'}
-          onToggle={() => togglePanel('activity')}
-          summary={
-            <DashboardPanelSummary
-              primary={`${data?.activity?.length || 0} movimientos`}
-              secondary={data?.activity?.[0]?.detail || 'Sin novedades importantes'}
-            />
-          }
-        >
-          {loading && !data ? (
-            <div className="dashboard-activity-list">
-              {Array.from({ length: 4 }, (_, index) => (
-                <div key={index} className="activity-row static skeleton-row" />
-              ))}
+            <div className="today-block">
+              <button type="button" className="today-row today-shopping" onClick={() => navigate('/shopping')}>
+                <Icon name="cart" size={20} className="today-shopping-icon" aria-hidden="true" />
+                <span className="today-row-main">
+                  <span className="today-row-title">{t('nav.shopping')}</span>
+                  <span className="today-row-sub">
+                    {shoppingPending === 0
+                      ? t('dash.nothingPending')
+                      : t(shoppingPending === 1 ? 'dash.shopItemsOne' : 'dash.shopItemsMany', shoppingPending)}
+                  </span>
+                </span>
+                <Icon name="chevronRight" size={16} className="today-row-chevron" aria-hidden="true" />
+              </button>
             </div>
-          ) : data?.activity?.length ? (
-            <div className="dashboard-activity-list">
-              {data.activity.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="activity-row"
-                  onClick={() => navigate(item.path)}
-                >
-                  <div>
-                    <strong>{item.title}</strong>
-                    <p>{item.detail}</p>
-                  </div>
-                  <span>{formatActivityType(item.type)}</span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <EmptyPrompt
-              title="Sin actividad destacada"
-              copy="Todavía no hay nada reciente que revisar. Puedes crear un evento o una tarea desde la agenda."
-              actionLabel="Crear en agenda"
-              onAction={() => navigate('/calendar')}
-            />
-          )}
-        </CollapsiblePanel>
 
-        <CollapsiblePanel
-          id="dashboard-meals-panel"
-          title="Comidas de hoy"
-          subtitle="Lo que ya está previsto"
-          open={openPanel === 'meals'}
-          onToggle={() => togglePanel('meals')}
-          summary={
-            <DashboardPanelSummary
-              primary={`${mealEntries.length} bloques`}
-              secondary={mealEntries.length ? mealEntries.map(([mealType]) => translateMealType(mealType)).join(' · ') : 'Sin plan todavía'}
-            />
-          }
-        >
-          {loading && !data ? (
-            <div className="stack-list">
-              {Array.from({ length: 3 }, (_, index) => (
-                <div key={index} className="list-row skeleton-row" />
-              ))}
-            </div>
-          ) : mealEntries.length ? (
-            <div className="stack-list">
-              {mealEntries.map(([mealType, value]) => (
-                <div key={mealType} className="list-row">
-                  <span>{translateMealType(mealType)}</span>
-                  <strong>{value}</strong>
+            <section className="today-block" aria-labelledby="today-activity-title">
+              <h2 id="today-activity-title">
+                {t('dash.recentActivity')}{' '}<span className="today-count">{t(activity.length === 1 ? 'dash.movesOne' : 'dash.movesMany', activity.length)}</span>
+              </h2>
+              {loading && !data ? (
+                <div className="today-skeleton" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                  <span />
                 </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyPrompt
-              title="No hay comidas planificadas"
-              copy="Planifica al menos el día de hoy para no tener que improvisar más tarde."
-              actionLabel="Planificar ahora"
-              onAction={() => navigate('/meals')}
-            />
-          )}
-        </CollapsiblePanel>
-
-        <CollapsiblePanel
-          id="dashboard-agenda-panel"
-          title="Agenda de hoy"
-          subtitle="Eventos y tareas domésticas visibles al entrar"
-          open={openPanel === 'agenda'}
-          onToggle={() => togglePanel('agenda')}
-          summary={
-            <DashboardPanelSummary
-              primary={`${todayAgendaCount} elementos`}
-              secondary={todayAgendaCount ? `${data?.events?.length || 0} eventos · ${data?.chores?.length || 0} tareas` : 'Día despejado'}
-            />
-          }
-        >
-          {loading && !data ? (
-            <div className="stack-list">
-              {Array.from({ length: 4 }, (_, index) => (
-                <div key={index} className="agenda-row skeleton-row" />
-              ))}
-            </div>
-          ) : (data?.events?.length || data?.chores?.length) ? (
-            <div className="stack-list">
-              {(data?.events || []).slice(0, 3).map((event) => (
-                <div key={event.id} className="agenda-row">
-                  <div className="agenda-row-time">{format(new Date(event.start_datetime), 'HH:mm')}</div>
-                  <div>
-                    <strong>{event.title}</strong>
-                    <p>{event.assigned_name ? `Con ${event.assigned_name}` : 'Evento compartido'}</p>
-                  </div>
-                </div>
-              ))}
-              {(data?.chores || []).slice(0, 3).map((chore) => (
-                <div key={chore.id} className="list-row">
-                  <div>
-                    <strong>{chore.title}</strong>
-                    <p className="muted-inline">{chore.location || 'Tarea del hogar'}</p>
-                  </div>
-                  <span className={`status-badge ${chore.status}`}>{chore.status}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyPrompt
-              title="Hoy está despejado"
-              copy="No hay eventos ni tareas del hogar para hoy. Si quieres, bloquea tiempo o crea una rutina rápida."
-              actionLabel="Añadir en agenda"
-              onAction={() => navigate('/calendar')}
-            />
-          )}
-        </CollapsiblePanel>
-
-        <CollapsiblePanel
-          id="dashboard-projects-panel"
-          title="Proyectos atrasados"
-          subtitle="Lo que se está quedando atrás"
-          className={data?.overdue_tasks?.length ? 'surface-danger' : ''}
-          open={openPanel === 'projects'}
-          onToggle={() => togglePanel('projects')}
-          summary={
-            <DashboardPanelSummary
-              primary={`${data?.overdue_tasks?.length || 0} atrasadas`}
-              secondary={data?.overdue_tasks?.[0]?.project_name || 'Sin bloqueos ahora mismo'}
-            />
-          }
-        >
-          {loading && !data ? (
-            <div className="stack-list">
-              {Array.from({ length: 3 }, (_, index) => (
-                <div key={index} className="list-row skeleton-row" />
-              ))}
-            </div>
-          ) : data?.overdue_tasks?.length ? (
-            <div className="stack-list">
-              {data.overdue_tasks.slice(0, 4).map((task) => (
-                <div key={task.id} className="list-row">
-                  <div>
-                    <strong>{task.title}</strong>
-                    <p className="muted-inline">{task.project_name}</p>
-                  </div>
-                  <span className={`priority-badge priority-${task.priority}`}>{task.priority}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyPrompt
-              title="Nada atrasado en proyectos"
-              copy="No hay tareas vencidas. Buen momento para revisar próximas entregas o simplemente dejarlo estar."
-              actionLabel="Ver proyectos"
-              onAction={() => navigate('/projects')}
-            />
-          )}
-        </CollapsiblePanel>
-      </div>
+              ) : activity.length > 0 ? (
+                <ul className="today-list">
+                  {activity.map((item) => (
+                    <li key={item.id}>
+                      <button type="button" className="today-row" onClick={() => navigate(item.path)}>
+                        <span className="today-row-main">
+                          <span className="today-row-title">{item.title}</span>
+                          <span className="today-row-sub">{item.detail}</span>
+                        </span>
+                        <span className="today-row-side">{formatActivityType(item.type)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <TodayEmpty
+                  title={t('dash.noActivityTitle')}
+                  copy={t('dash.noActivityCopy')}
+                  actionLabel={t('dash.createInAgenda')}
+                  onAction={() => navigate('/calendar')}
+                />
+              )}
+            </section>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function DashboardPanelSummary({ primary, secondary }: { primary: string; secondary?: string }) {
-  return (
-    <>
-      <span className="compact-summary-pill">{primary}</span>
-      {secondary ? <span className="compact-summary-note">{secondary}</span> : null}
-    </>
-  );
-}
-
-function EmptyPrompt({
+function TodayEmpty({
   title,
   copy,
   actionLabel,
@@ -477,12 +433,14 @@ function EmptyPrompt({
   onAction: () => void;
 }) {
   return (
-    <div className="empty-state-panel">
-      <strong>{title}</strong>
+    <div className="empty-state">
+      <p className="today-empty-title">{title}</p>
       <p>{copy}</p>
-      <button type="button" className="btn btn-secondary btn-sm" onClick={onAction}>
-        {actionLabel}
-      </button>
+      <div className="today-empty-actions">
+        <button type="button" className="btn btn-secondary" onClick={onAction}>
+          {actionLabel}
+        </button>
+      </div>
     </div>
   );
 }
@@ -490,32 +448,45 @@ function EmptyPrompt({
 function translateMealType(value: string) {
   switch (value) {
     case 'breakfast':
-      return 'Desayuno';
+      return t('dash.mealBreakfast');
     case 'lunch':
-      return 'Comida';
+      return t('dash.mealLunch');
     case 'dinner':
-      return 'Cena';
+      return t('dash.mealDinner');
     case 'snack':
-      return 'Snack';
+      return t('dash.mealSnack');
     default:
       return value;
+  }
+}
+
+function translatePriority(value?: string | null) {
+  switch (value) {
+    case 'high':
+      return t('dash.priorityHigh');
+    case 'medium':
+      return t('dash.priorityMedium');
+    case 'low':
+      return t('dash.priorityLow');
+    default:
+      return value || t('dash.priorityNone');
   }
 }
 
 function formatActivityType(type: string) {
   switch (type) {
     case 'event':
-      return 'Agenda';
+      return t('dash.activityAgenda');
     case 'shopping':
-      return 'Compra';
+      return t('dash.activityShopping');
     default:
-      return 'Actividad';
+      return t('dash.activityOther');
   }
 }
 
-function getGreeting() {
+function getGreetingKey() {
   const h = new Date().getHours();
-  if (h < 12) return 'Buenos días';
-  if (h < 18) return 'Buenas tardes';
-  return 'Buenas noches';
+  if (h < 12) return 'dashboard.greeting.morning';
+  if (h < 18) return 'dashboard.greeting.afternoon';
+  return 'dashboard.greeting.evening';
 }

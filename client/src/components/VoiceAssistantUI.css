@@ -1,55 +1,40 @@
-.voice-fab {
-  position: fixed;
-  right: 18px;
-  bottom: calc(env(safe-area-inset-bottom) + 104px);
-  z-index: 42;
-  width: 48px;
-  height: 48px;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(20, 23, 28, 0.92);
-  color: var(--text-primary);
-  box-shadow: var(--shadow-md);
-  backdrop-filter: blur(12px);
-  display: grid;
-  place-items: center;
-  font-size: 1.1rem;
-  transition: transform var(--transition-fast), background var(--transition-fast);
+.voice-button.listening {
+  background: var(--red-soft);
+  color: var(--red);
 }
 
-.voice-fab:hover {
-  transform: translateY(-1px);
+.voice-button.processing {
+  color: var(--text-muted);
 }
 
-.voice-fab.listening {
-  background: rgba(242, 139, 130, 0.9);
-  color: #14171c;
+.voice-button:disabled {
+  cursor: progress;
 }
 
-.voice-fab.processing {
-  background: rgba(240, 200, 121, 0.9);
-  color: #14171c;
+.spinner-sm {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
 }
 
 .voice-status-overlay {
   position: fixed;
-  right: 18px;
-  bottom: calc(env(safe-area-inset-bottom) + 162px);
+  top: calc(env(safe-area-inset-top) + var(--topbar-height) + 8px);
+  right: 16px;
   z-index: 42;
-  width: min(320px, calc(100vw - 36px));
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(20, 23, 28, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  width: min(320px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--surface-border-strong);
   box-shadow: var(--shadow-md);
 }
 
 .voice-status-header {
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
   color: var(--accent);
-  margin-bottom: 6px;
 }
 
 .voice-status-transcript {
@@ -58,25 +43,13 @@
 
 .voice-error-toast {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + 16px);
+  top: calc(env(safe-area-inset-top) + 12px);
   right: 16px;
   z-index: 65;
   max-width: 320px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(242, 139, 130, 0.92);
-  color: #15191e;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--red);
+  color: var(--on-accent);
   box-shadow: var(--shadow-md);
-}
-
-@media (min-width: 961px) {
-  .voice-fab {
-    bottom: 22px;
-    right: 22px;
-  }
-
-  .voice-status-overlay {
-    bottom: 82px;
-    right: 22px;
-  }
 }

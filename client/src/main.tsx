@@ -2,6 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ensurePwaVersion, registerPwaRefreshHandler, requestPwaHardReload, usePwaStore } from './store/pwa';
+import '@fontsource-variable/bricolage-grotesque/wght.css';
+import '@fontsource-variable/onest/wght.css';
 import './styles/global.css';
 
 const UI_VERSION = '2026-03-30-1';

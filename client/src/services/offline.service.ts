@@ -88,10 +88,10 @@ function toCacheKey(scope: string, path: string) {
 }
 
 export function getScopeFromUser(user: ScopeUser | null | undefined) {
-  if (!user?.id || !user?.householdId) {
+  if (!user?.id) {
     return 'anonymous';
   }
-  return `${user.id}:${user.householdId}`;
+  return `${user.id}:${user.householdId ?? 'no-household'}`;
 }
 
 export function createOfflineId(prefix: string) {

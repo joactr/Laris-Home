@@ -5,11 +5,13 @@ import { t } from '../../i18n';
 import { useVoiceStore } from '../../store/voice';
 import ConfirmModal from '../../components/ConfirmModal';
 import StatusModal from '../../components/StatusModal';
+import Icon from '../../components/Icon';
 import type {
     RecipeRecord,
     ShoppingList,
     VoiceRecipeCommandProposal,
 } from '../../../../shared/contracts';
+import './Recipes.css';
 
 export default function RecipeDetail() {
     const { id } = useParams<{ id: string }>();
@@ -22,8 +24,7 @@ export default function RecipeDetail() {
     const [selectedListId, setSelectedListId] = useState('');
     const [selectedIngredients, setSelectedIngredients] = useState<string[]>([]);
     const [isAdding, setIsAdding] = useState(false);
-    
-    // Modal state
+
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
     const [proposedRecipe, setProposedRecipe] = useState<VoiceRecipeCommandProposal | null>(null);
@@ -49,7 +50,7 @@ export default function RecipeDetail() {
         try {
             const res = await api.voice.processRecipeCommand(transcript, id);
             setVoiceTranscript(res.transcript || transcript);
-            
+
             if (res.status === 'needs_review' && res.modified && res.proposedRecipe) {
                 setProposedRecipe(res.proposedRecipe);
                 setVoiceMessage(res.message);
@@ -100,7 +101,6 @@ export default function RecipeDetail() {
         return () => voiceStore.unregister();
     }, [handleVoiceResult]);
 
-    // Separate useEffect for shopping lists as it's independent of recipe load
     useEffect(() => {
         api.shopping.getLists().then(ls => {
             setLists(ls);
@@ -109,9 +109,21 @@ export default function RecipeDetail() {
     }, []);
 
     if (loading) return <div className="loading-center"><div className="spinner" /></div>;
-    if (error || !recipe) return <div className="page" style={{ padding: '2rem', color: 'red' }}>Error: {error || 'Receta no encontrada'}</div>;
+    if (error || !recipe) return <div className="page" style={{ padding: '2rem', color: 'red' }}>Error: {error || t('rec.notFound')}</div>;
 
-    const hasMacros = recipe.calories_per_serving || recipe.protein_per_serving || recipe.carbs_per_serving || recipe.fat_per_serving;
+    const metaParts: string[] = [];
+    if (recipe.servings) metaParts.push(t(recipe.servings === 1 ? 'rec.servingsOne' : 'rec.servingsMany', recipe.servings));
+    const mins = (recipe.prep_time_minutes || 0) + (recipe.cook_time_minutes || 0);
+    if (mins) metaParts.push(`${mins} min`);
+    if (recipe.calories_per_serving) metaParts.push(t('rec.kcalPerServing', recipe.calories_per_serving));
+
+    const nutrition: Array<[string, string]> = [];
+    if (recipe.calories_per_serving) nutrition.push([t('recipes.calories'), `${recipe.calories_per_serving} kcal`]);
+    if (recipe.protein_per_serving) nutrition.push([t('recipes.protein'), `${recipe.protein_per_serving} g`]);
+    if (recipe.carbs_per_serving) nutrition.push([t('recipes.carbs'), `${recipe.carbs_per_serving} g`]);
+    if (recipe.fat_per_serving) nutrition.push([t('recipes.fat'), `${recipe.fat_per_serving} g`]);
+
+    const tags = (recipe.tags || []).map((tag) => tag.name).join(', ');
 
     const handleDelete = async () => {
         try {
@@ -120,15 +132,15 @@ export default function RecipeDetail() {
             navigate('/recipes');
         } catch (err: unknown) {
             setVoiceFallback({
-                message: err instanceof Error ? err.message : 'Error deleting recipe',
+                message: err instanceof Error ? err.message : t('rec.deleteFail'),
                 transcript: '',
             });
         }
     };
 
-    const toggleIngredient = (id: string) => {
-        setSelectedIngredients((prev: string[]) => 
-            prev.includes(id) ? prev.filter((i: string) => i !== id) : [...prev, id]
+    const toggleIngredient = (ingredientId: string) => {
+        setSelectedIngredients((prev: string[]) =>
+            prev.includes(ingredientId) ? prev.filter((i: string) => i !== ingredientId) : [...prev, ingredientId]
         );
     };
 
@@ -138,14 +150,14 @@ export default function RecipeDetail() {
         try {
             await api.recipes.addToShoppingList(recipe.id, selectedListId, selectedIngredients);
             setVoiceFallback({
-                message: '¡Ingredientes añadidos con éxito!',
+                message: t('rec.ingredientsAddedDetail'),
                 transcript: '',
             });
             setShowShoppingModal(false);
             setSelectedIngredients([]);
         } catch (err: unknown) {
             setVoiceFallback({
-                message: err instanceof Error ? err.message : 'Error al añadir ingredientes',
+                message: err instanceof Error ? err.message : t('rec.addIngredientsFail'),
                 transcript: '',
             });
         } finally {
@@ -153,129 +165,117 @@ export default function RecipeDetail() {
         }
     };
 
-
     return (
         <div className="page">
-            <div className="recipe-detail-header">
-                <div className="recipe-detail-title-section">
-                    <div className="title-row">
-                        <button className="btn-icon touch-target" onClick={() => navigate('/recipes')} aria-label={t('common.back')}>←</button>
-                        <h1 className="page-title">{recipe.title}</h1>
-                    </div>
-                    {recipe.description && <p className="recipe-detail-description">{recipe.description}</p>}
-                </div>
-                <div className="recipe-detail-actions">
-                    {recipe.source_url && (
-                        <a href={recipe.source_url} target="_blank" rel="noreferrer" className="btn btn-outline btn-sm touch-target">
-                            Ver original
-                        </a>
-                    )}
-                    <button className="btn btn-primary btn-sm touch-target" onClick={() => navigate(`/recipes/${recipe.id}/edit`)}>
-                        {t('common.edit')}
-                    </button>
-                    <button className="btn btn-secondary btn-sm btn-danger-text touch-target" onClick={() => setShowDeleteConfirm(true)}>
-                        {t('common.delete')}
-                    </button>
-                </div>
+            <div className="recipe-detail-top">
+                <button className="icon-button" onClick={() => navigate('/recipes')} aria-label={t('common.back')}>
+                    <Icon name="chevronLeft" size={20} />
+                </button>
+                <h1>{recipe.title}</h1>
             </div>
+            {recipe.description ? <p className="recipe-detail-meta">{recipe.description}</p> : null}
+            {metaParts.length > 0 ? <p className="recipe-detail-meta">{metaParts.join(' · ')}</p> : null}
+            {tags ? <p className="recipe-detail-tags">{tags}</p> : null}
 
-            <div className="card recipe-detail-card" style={{ margin: '1rem auto' }}>
-                {recipe.image_url && (
-                    <div style={{ marginBottom: 24, borderRadius: 12, overflow: 'hidden', maxHeight: 400 }}>
-                        <img 
-                            src={recipe.image_url} 
-                            alt={recipe.title} 
-                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} 
-                            onError={(e) => (e.currentTarget.style.display = 'none')}
-                        />
-                    </div>
-                )}
-                
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-                    {!!recipe.servings && <div><strong>{t('recipes.servings')}:</strong> {recipe.servings}</div>}
-                    {!!recipe.prep_time_minutes && <div><strong>{t('recipes.prepTime')}:</strong> {recipe.prep_time_minutes}m</div>}
-                    {!!recipe.cook_time_minutes && <div><strong>{t('recipes.cookTime')}:</strong> {recipe.cook_time_minutes}m</div>}
-                </div>
+            {recipe.image_url ? (
+                <img
+                    src={recipe.image_url}
+                    alt=""
+                    className="recipe-detail-hero"
+                    onError={(e) => (e.currentTarget.style.display = 'none')}
+                />
+            ) : null}
 
-                {hasMacros && (
-                    <div style={{ marginBottom: 24 }}>
-                        <h3 style={{ marginTop: 0 }}>{t('recipes.nutrition')}</h3>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                            {!!recipe.calories_per_serving && <div style={{ background: 'rgba(33, 150, 243, 0.15)', color: '#90caf9', border: '1px solid rgba(33, 150, 243, 0.3)', padding: '8px 12px', borderRadius: 8 }}><strong>{recipe.calories_per_serving}</strong> kcal</div>}
-                            {!!recipe.carbs_per_serving && <div style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#a5d6a7', border: '1px solid rgba(76, 175, 80, 0.3)', padding: '8px 12px', borderRadius: 8 }}><strong>{recipe.carbs_per_serving}g</strong> C</div>}
-                            {!!recipe.fat_per_serving && <div style={{ background: 'rgba(156, 39, 176, 0.15)', color: '#ce93d8', border: '1px solid rgba(156, 39, 176, 0.3)', padding: '8px 12px', borderRadius: 8 }}><strong>{recipe.fat_per_serving}g</strong> G</div>}
-                            {!!recipe.protein_per_serving && <div style={{ background: 'rgba(255, 193, 7, 0.15)', color: '#ffe082', border: '1px solid rgba(255, 193, 7, 0.3)', padding: '8px 12px', borderRadius: 8 }}><strong>{recipe.protein_per_serving}g</strong> P</div>}
+            {nutrition.length > 0 ? (
+                <dl className="recipe-nutrition">
+                    {nutrition.map(([label, value]) => (
+                        <div key={label}>
+                            <dt>{label}</dt>
+                            <dd>{value}</dd>
                         </div>
-                    </div>
-                )}
+                    ))}
+                </dl>
+            ) : null}
 
-                <div className="recipe-detail-grid">
-                    <div>
-                        <h3 style={{ marginTop: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                            {t('recipes.ingredients')}
-                            {selectedIngredients.length > 0 && (
-                                <button className="btn btn-primary btn-xs touch-target" onClick={() => setShowShoppingModal(true)}>
-                                    🛒 Añadir ({selectedIngredients.length})
-                                </button>
-                            )}
-                        </h3>
-                        <ul className="ingredients-list">
-                            {recipe.ingredients?.map((ing) => (
-                                <li key={ing.id} className="ingredient-item">
-                                    <input 
-                                        type="checkbox" 
-                                        className="checkbox-mini"
-                                        checked={selectedIngredients.includes(ing.id)} 
-                                        onChange={() => toggleIngredient(ing.id)} 
-                                    />
-                                    <span>
-                                        {ing.quantity && <strong>{ing.quantity} </strong>}
-                                        {ing.unit && <span>{ing.unit} </span>}
-                                        {ing.name}
-                                        {ing.notes && <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}> ({ing.notes})</span>}
-                                    </span>
-                                </li>
-                            ))}
-                        </ul>
+            <div className="recipe-detail-grid">
+                <section aria-label={t('recipes.ingredients')}>
+                    <div className="recipe-ingredients-head">
+                        <h2>{t('recipes.ingredients')}</h2>
+                        {selectedIngredients.length > 0 ? (
+                            <button className="btn btn-primary btn-sm" onClick={() => setShowShoppingModal(true)}>
+                                {t('rec.addCount', selectedIngredients.length)}
+                            </button>
+                        ) : null}
                     </div>
-                    
-                    <div>
-                        <h3 style={{ marginTop: 0 }}>{t('recipes.instructions')}</h3>
-                        <ol className="instructions-list">
-                            {recipe.instructions.split('\n').filter((step: string) => step.trim().length > 0).map((step: string, i: number) => (
-                                <li key={i} className="instruction-step">{step.trim()}</li>
-                            ))}
-                        </ol>
-                    </div>
-                </div>
+                    <ul className="recipe-ingredients">
+                        {recipe.ingredients?.map((ing) => (
+                            <li key={ing.id}>
+                                <input
+                                    type="checkbox"
+                                    checked={selectedIngredients.includes(ing.id)}
+                                    onChange={() => toggleIngredient(ing.id)}
+                                    aria-label={ing.name}
+                                />
+                                <span>
+                                    {ing.quantity ? <strong>{ing.quantity} </strong> : null}
+                                    {ing.unit ? <span>{ing.unit} </span> : null}
+                                    {ing.name}
+                                    {ing.notes ? <span className="notes"> ({ing.notes})</span> : null}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
 
+                <section aria-label={t('recipes.instructions')}>
+                    <h2>{t('recipes.instructions')}</h2>
+                    <ol className="recipe-instructions">
+                        {recipe.instructions.split('\n').filter((step: string) => step.trim().length > 0).map((step: string, i: number) => (
+                            <li key={i}>{step.trim()}</li>
+                        ))}
+                    </ol>
+                </section>
             </div>
 
-            {/* Shopping List Selection Modal */}
+            <div className="recipe-detail-footer">
+                {recipe.source_url && (
+                    <a href={recipe.source_url} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
+                        {t('rec.viewOriginal')}
+                    </a>
+                )}
+                <button className="btn btn-primary btn-sm" onClick={() => navigate(`/recipes/${recipe.id}/edit`)}>
+                    {t('common.edit')}
+                </button>
+                <button className="btn btn-ghost btn-sm btn-danger-text" onClick={() => setShowDeleteConfirm(true)}>
+                    {t('common.delete')}
+                </button>
+            </div>
+
             {showShoppingModal && (
                 <div className="modal-overlay" onClick={() => setShowShoppingModal(false)}>
                     <div className="modal" onClick={e => e.stopPropagation()}>
                         <div className="modal-header">
-                            <span className="modal-title">Añadir al carrito</span>
-                            <button className="modal-close touch-target" onClick={() => setShowShoppingModal(false)} aria-label={t('common.close')}>×</button>
+                            <span className="modal-title">{t('rec.addToShopping')}</span>
+                            <button className="modal-close touch-target" onClick={() => setShowShoppingModal(false)} aria-label={t('common.close')}>
+                                <Icon name="close" size={18} />
+                            </button>
                         </div>
-                        <div className="form-group">
-                            <label className="label" htmlFor="list-select">{t('page.shopping')}</label>
-                            <select id="list-select" className="input" value={selectedListId} onChange={e => setSelectedListId(e.target.value)}>
+                        <div className="modal-body">
+                            <label className="label" htmlFor="detail-list-select">{t('page.shopping')}</label>
+                            <select id="detail-list-select" className="input" value={selectedListId} onChange={e => setSelectedListId(e.target.value)}>
                                 {lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                             </select>
-                        </div>
-                        <div className="modal-actions">
-                            <button className="btn btn-secondary" onClick={() => setShowShoppingModal(false)}>{t('common.cancel')}</button>
-                            <button className="btn btn-primary" onClick={handleAddToShopping} disabled={isAdding}>
-                                {isAdding ? t('common.loading') : t('common.save')}
-                            </button>
+                            <div className="modal-actions">
+                                <button className="btn btn-secondary" onClick={() => setShowShoppingModal(false)}>{t('common.cancel')}</button>
+                                <button className="btn btn-primary" onClick={handleAddToShopping} disabled={isAdding}>
+                                    {isAdding ? t('common.loading') : t('common.save')}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Delete Confirmation Modal */}
             <ConfirmModal
                 isOpen={showDeleteConfirm}
                 title={t('common.delete')}
@@ -285,13 +285,14 @@ export default function RecipeDetail() {
                 isDanger
             />
 
-            {/* Voice Message Feedback */}
             {voiceMessage && (
                 <div className="modal-overlay" onClick={() => setVoiceMessage(null)}>
                     <div className="modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
                         <div className="modal-header">
-                            <span className="modal-title">Asistente de Voz</span>
-                            <button className="modal-close" onClick={() => setVoiceMessage(null)}>×</button>
+                            <span className="modal-title">{t('rec.voiceTitle')}</span>
+                            <button className="modal-close" onClick={() => setVoiceMessage(null)} aria-label={t('common.close')}>
+                                <Icon name="close" size={18} />
+                            </button>
                         </div>
                         <div style={{ padding: '0 0 16px' }}>
                             {voiceMessage}
@@ -308,11 +309,10 @@ export default function RecipeDetail() {
                 </div>
             )}
 
-            {/* Voice Modification Confirmation Modal */}
             <ConfirmModal
                 isOpen={!!proposedRecipe}
-                title="Confirmar cambios AI"
-                message={`${voiceMessage || "¿Deseas aplicar estos cambios a la receta?"}${voiceTranscript ? `\n\n${t('voice.transcriptLabel')}: ${voiceTranscript}` : ''}`}
+                title={t('rec.confirmChanges')}
+                message={`${voiceMessage || t('rec.applyChangesConfirm')}${voiceTranscript ? `\n\n${t('voice.transcriptLabel')}: ${voiceTranscript}` : ''}`}
                 onConfirm={applyProposedChange}
                 onCancel={() => {
                     setProposedRecipe(null);

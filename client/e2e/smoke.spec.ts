@@ -46,7 +46,7 @@ test('creates a calendar event', async ({ page }) => {
 
     await login(page);
     await page.goto('/calendar');
-    await page.getByRole('button', { name: /\+ Evento/i }).click();
+    await page.getByRole('button', { name: /Nuevo evento/i }).click();
     await page.locator('#event-title').fill(eventTitle);
     await page.locator('#event-save').click();
 

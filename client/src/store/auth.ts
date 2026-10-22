@@ -7,6 +7,7 @@ interface User {
     name: string;
     username: string;
     is_admin: boolean;
+    role?: string | null;
     color: string;
     householdId: string | null;
 }

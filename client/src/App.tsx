@@ -105,7 +105,7 @@ function AppShell() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/shopping" element={<Shopping />} />
                 <Route path="/calendar" element={<Calendar />} />
-                <Route path="/chores" element={<Navigate to="/calendar" replace />} />
+
                 <Route path="/meals" element={<Meals />} />
                 <Route path="/recipes" element={<Recipes />} />
                 <Route path="/recipes/import" element={<RecipeImportPage />} />

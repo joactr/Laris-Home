@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  addDays,
   addMonths,
   eachDayOfInterval,
   endOfMonth,
@@ -12,14 +13,14 @@ import {
   startOfWeek,
   subMonths,
 } from 'date-fns';
-import { es } from 'date-fns/locale';
+import { dateFormats, dateLocale } from '../../i18n/date';
 import { api } from '../../api';
 import { useOfflineStore } from '../../store/offline';
 import { toastError, toastInfo, toastSuccess } from '../../store/toast';
 import { t } from '../../i18n';
 import ConfirmModal from '../../components/ConfirmModal';
+import Icon from '../../components/Icon';
 import SectionHeader from '../../components/SectionHeader';
-import Surface from '../../components/Surface';
 import SegmentedControl from '../../components/SegmentedControl';
 import type {
   AuthUser,
@@ -27,6 +28,7 @@ import type {
   CalendarEventInput,
   DashboardPayload,
 } from '../../../../shared/contracts';
+import './Calendar.css';
 
 interface EventForm {
   title: string;
@@ -75,6 +77,15 @@ type ChoreStat = {
   points: number;
 };
 
+const WEEKDAY_KEYS = ['cal.wdMon', 'cal.wdTue', 'cal.wdWed', 'cal.wdThu', 'cal.wdFri', 'cal.wdSat', 'cal.wdSun'];
+
+/** Formatea un datetime almacenado como valor local para `datetime-local`. */
+function toLocalInput(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(+date)) return value.slice(0, 16);
+  return format(date, "yyyy-MM-dd'T'HH:mm");
+}
+
 export default function Calendar() {
   const [mode, setMode] = useState<AgendaMode>('month');
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
@@ -122,14 +133,6 @@ export default function Calendar() {
     [gridStart, gridEnd]
   );
 
-  const monthWeeks = useMemo(() => {
-    const weeks: Date[][] = [];
-    for (let i = 0; i < monthDays.length; i += 7) {
-      weeks.push(monthDays.slice(i, i + 7));
-    }
-    return weeks;
-  }, [monthDays]);
-
   const dayKey = format(selectedDate, 'yyyy-MM-dd');
 
   useEffect(() => {
@@ -156,9 +159,9 @@ export default function Calendar() {
         setError(null);
       } catch (err: unknown) {
         if (!active) return;
-        const message = err instanceof Error ? err.message : 'No se pudo cargar la agenda.';
+        const message = err instanceof Error ? err.message : t('cal.loadFailed');
         setError(message);
-        toastError('No se pudo cargar la agenda', message);
+        toastError(t('cal.loadFailed'), message);
       } finally {
         if (active) {
           setLoading(false);
@@ -177,7 +180,7 @@ export default function Calendar() {
 
     const loadDashboardMeta = async () => {
       try {
-        const nextDashboardMeta = await api.dashboard.get();
+        const nextDashboardMeta: DashboardPayload = await api.dashboard.get();
         if (!active) return;
         setDashboardMeta(nextDashboardMeta);
       } catch {
@@ -232,8 +235,8 @@ export default function Calendar() {
     setEventForm({
       title: event.title,
       description: event.description || '',
-      start_datetime: event.start_datetime.slice(0, 16),
-      end_datetime: event.end_datetime.slice(0, 16),
+      start_datetime: toLocalInput(event.start_datetime),
+      end_datetime: toLocalInput(event.end_datetime),
       category: event.category || 'shared',
     });
     setShowEventModal(true);
@@ -250,7 +253,7 @@ export default function Calendar() {
 
   const saveEvent = async () => {
     if (!eventForm.title.trim()) {
-      toastInfo('Falta un título', 'Ponle un nombre al evento antes de guardar.');
+      toastInfo(t('cal.titleMissing'), t('cal.titleMissingHint'));
       return;
     }
 
@@ -269,12 +272,12 @@ export default function Calendar() {
       setEditingEvent(null);
 
       if (saved.pending_sync) {
-        toastInfo('Evento guardado sin conexión', 'Se sincronizará cuando vuelva la red.');
+        toastInfo(t('cal.eventSavedOffline'), t('cal.eventSavedOfflineHint'));
       } else {
-        toastSuccess(editingEvent ? 'Evento actualizado' : 'Evento creado');
+        toastSuccess(editingEvent ? t('cal.eventUpdated') : t('cal.eventCreated'));
       }
     } catch (err: unknown) {
-      toastError('No se pudo guardar el evento', err instanceof Error ? err.message : 'Revisa los datos e inténtalo de nuevo.');
+      toastError(t('cal.saveEventFailed'), err instanceof Error ? err.message : t('cal.checkData'));
     }
   };
 
@@ -287,9 +290,9 @@ export default function Calendar() {
       setConfirmDeleteEventId(null);
       setShowEventModal(false);
       setEditingEvent(null);
-      toastSuccess('Evento eliminado');
+      toastSuccess(t('cal.eventDeleted'));
     } catch (err: unknown) {
-      toastError('No se pudo borrar el evento', err instanceof Error ? err.message : 'Vuelve a intentarlo.');
+      toastError(t('cal.deleteEventFailed'), err instanceof Error ? err.message : t('cal.retry'));
     }
   };
 
@@ -300,12 +303,12 @@ export default function Calendar() {
       await refreshChoreStats();
 
       if (updated.pending_sync) {
-        toastInfo('Tarea actualizada sin conexión', 'El cambio se sincronizará después.');
+        toastInfo(t('cal.choreUpdatedOffline'), t('cal.choreSyncLater'));
       } else {
-        toastSuccess(status === 'done' ? 'Tarea completada' : 'Tarea reabierta');
+        toastSuccess(status === 'done' ? t('cal.choreDone') : t('cal.choreReopened'));
       }
     } catch (err: unknown) {
-      toastError('No se pudo actualizar la tarea', err instanceof Error ? err.message : 'Vuelve a intentarlo.');
+      toastError(t('cal.updateChoreFailed'), err instanceof Error ? err.message : t('cal.retry'));
     }
   };
 
@@ -336,9 +339,9 @@ export default function Calendar() {
         default_assignee_user_id: '',
         start_date: format(new Date(), 'yyyy-MM-dd'),
       });
-      toastSuccess('Tarea recurrente creada');
+      toastSuccess(t('cal.choreCreated'));
     } catch (err: unknown) {
-      toastError('No se pudo crear la tarea', err instanceof Error ? err.message : 'Revisa los datos e inténtalo de nuevo.');
+      toastError(t('cal.createChoreFailed'), err instanceof Error ? err.message : t('cal.checkData'));
     }
   };
 
@@ -350,9 +353,9 @@ export default function Calendar() {
       setChores((current) => current.filter((chore) => chore.id !== confirmDeleteChoreId));
       await refreshChoreStats();
       setConfirmDeleteChoreId(null);
-      toastSuccess('Rutina eliminada');
+      toastSuccess(t('cal.choreDeleted'));
     } catch (err: unknown) {
-      toastError('No se pudo borrar la tarea', err instanceof Error ? err.message : 'Vuelve a intentarlo.');
+      toastError(t('cal.deleteChoreFailed'), err instanceof Error ? err.message : t('cal.retry'));
     }
   };
 
@@ -362,9 +365,20 @@ export default function Calendar() {
     setSelectedDate(today);
   };
 
+  const stepDay = (delta: number) => {
+    const next = addDays(selectedDate, delta);
+    setSelectedDate(next);
+    setCurrentMonth(startOfMonth(next));
+  };
+
+  const toolbarLabel =
+    mode === 'month'
+      ? format(currentMonth, 'MMMM yyyy', { locale: dateLocale() })
+      : format(selectedDate, dateFormats.weekdayDayMonth(), { locale: dateLocale() });
+
   if (loading) {
     return (
-      <div className="page page-calendar-unified">
+      <div className="page">
         <div className="loading-center">
           <div className="spinner" />
         </div>
@@ -373,250 +387,256 @@ export default function Calendar() {
   }
 
   return (
-    <div className="page page-calendar-unified">
+    <div className="page">
       <SectionHeader
-        eyebrow="Agenda doméstica"
-        title="Agenda y tareas en una sola vista"
-        subtitle="Vista mensual combinada, detalle diario y acciones rápidas sin cambiar de módulo."
+        title={t('page.calendar')}
         actions={
-          <div className="header-action-row">
-            <SegmentedControl
-              value={mode}
-              onChange={setMode}
-              options={[
-                { value: 'month', label: 'Mes' },
-                { value: 'agenda', label: 'Día' },
-              ]}
-            />
-            <button type="button" className="btn btn-secondary" onClick={goToday}>
-              Hoy
-            </button>
+          <div className="cal-header-actions">
             <button type="button" className="btn btn-secondary" onClick={() => setShowChoreModal(true)}>
-              Nueva tarea
+              <Icon name="plus" size={16} />
+              {t('cal.newTask')}
             </button>
             <button type="button" className="btn btn-primary" onClick={() => openCreateEvent(selectedDate)}>
-              {t('calendar.newEvent')}
+              <Icon name="plus" size={16} />
+              {t('cal.newEvent')}
             </button>
           </div>
         }
       />
 
-      <Surface className="agenda-insight-surface">
-        <div className="agenda-insight-shell">
-          <div>
-            <span className="summary-pill">Resumen visible</span>
-            <h2>Qué merece atención hoy</h2>
-            <p>
-              {error
-                ? 'La vista principal sigue disponible, pero no he podido montar todo el contexto adicional.'
-                : dashboardMeta?.summary?.text || 'Revisa hoy, desbloquea tareas pendientes y usa esta misma pantalla para crear lo que falte.'}
-            </p>
-          </div>
-          <div className="agenda-insight-meta">
-            <span>{selectedDayEvents.length} eventos en el día</span>
-            <span>{selectedDayChores.length} tareas en el día</span>
-            <span>{isOffline ? 'Sin conexión' : 'Sincronizado'}</span>
-          </div>
-        </div>
-      </Surface>
-
-      <div className="calendar-shell">
-        <Surface
-          className="calendar-board"
-          title={format(currentMonth, 'MMMM yyyy', { locale: es })}
-          subtitle="Vista mensual unificada"
-          actions={
-            <div className="week-switcher">
-              <button type="button" className="btn btn-secondary" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
-                {t('common.prev')}
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
-                {t('common.next')}
-              </button>
-            </div>
-          }
-        >
-          <div className="month-grid">
-            {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((label) => (
-              <div key={label} className="month-grid-head">
-                {label}
-              </div>
-            ))}
-
-            {monthWeeks.flat().map((day) => {
-              const key = format(day, 'yyyy-MM-dd');
-              const dayEvents = eventsByDay.get(key) || [];
-              const dayChores = choresByDay.get(key) || [];
-              const visibleItems = [
-                ...dayEvents.map((event) => ({ type: 'event' as const, id: event.id, label: event.title, tone: event.category || 'shared' })),
-                ...dayChores.map((chore) => ({ type: 'chore' as const, id: chore.id, label: chore.title, tone: chore.status === 'done' ? 'done' : 'pending' })),
-              ].slice(0, 3);
-              const extraCount = dayEvents.length + dayChores.length - visibleItems.length;
-
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  className={`month-cell ${isSameMonth(day, currentMonth) ? '' : 'outside'} ${isSameDay(day, selectedDate) ? 'selected' : ''} ${isToday(day) ? 'today' : ''}`}
-                  onClick={() => {
-                    setSelectedDate(day);
-                    setMode('agenda');
-                  }}
-                >
-                  <div className="month-cell-date">
-                    <span>{format(day, 'd')}</span>
-                  </div>
-                  <div className="month-cell-items">
-                    {visibleItems.map((item) => (
-                      <span key={`${item.type}-${item.id}`} className={`month-chip ${item.type} ${item.tone}`}>
-                        {item.label}
-                      </span>
-                    ))}
-                    {extraCount > 0 ? <span className="month-chip more">+{extraCount} más</span> : null}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </Surface>
-
-        <div className="calendar-side">
-          <Surface
-            className="day-focus"
-            title={format(selectedDate, "EEEE d 'de' MMMM", { locale: es })}
-            subtitle={`${selectedDayEvents.length} eventos · ${selectedDayChores.length} tareas`}
-            actions={
-              <div className="header-action-row">
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => openCreateEvent(selectedDate)}>
-                  Evento
-                </button>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowChoreModal(true)}>
-                  Tarea
-                </button>
-              </div>
-            }
+      <div className="cal-toolbar">
+        <div className="cal-month-nav">
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon cal-nav-btn"
+            aria-label={mode === 'month' ? t('cal.prevMonth') : t('cal.prevDay')}
+            onClick={() => (mode === 'month' ? setCurrentMonth(subMonths(currentMonth, 1)) : stepDay(-1))}
           >
-            {mode === 'agenda' || selectedDayEvents.length > 0 || selectedDayChores.length > 0 ? (
-              <div className="day-focus-stack">
-                <div className="day-focus-group">
-                  <div className="day-focus-label">Eventos</div>
-                  {selectedDayEvents.length ? (
-                    selectedDayEvents.map((event) => (
-                      <button
-                        key={event.id}
-                        type="button"
-                        className={`agenda-card ${event.category || 'shared'} ${event.pending_sync ? 'is-pending' : ''}`}
-                        onClick={() => openEditEvent(event)}
-                      >
-                        <div className="agenda-card-time">{format(new Date(event.start_datetime), 'HH:mm')}</div>
-                        <div className="agenda-card-body">
-                          <strong>{event.title}</strong>
-                          {event.description ? <p>{event.description}</p> : null}
-                          {event.pending_sync ? <span className="muted-inline">Pendiente de sincronizar</span> : null}
-                        </div>
-                      </button>
-                    ))
-                  ) : (
-                    <InlineEmptyState
-                      title="Sin eventos en este día"
-                      copy="Bloquea tiempo, añade un recordatorio o deja la fecha libre."
-                      actionLabel="Crear evento"
-                      onAction={() => openCreateEvent(selectedDate)}
-                    />
-                  )}
-                </div>
-
-                <div className="day-focus-group">
-                  <div className="day-focus-label">Tareas del hogar</div>
-                  {selectedDayChores.length ? (
-                    selectedDayChores.map((chore) => (
-                      <div key={chore.id} className={`chore-row ${chore.status}`}>
-                        <div className="chore-row-copy">
-                          <div className="row-inline-meta">
-                            <strong>{chore.title}</strong>
-                            <span className={`status-badge ${chore.status}`}>{chore.status}</span>
-                          </div>
-                          <div className="row-inline-meta muted-inline">
-                            <span>{chore.location || 'Sin ubicación'}</span>
-                            <span>{chore.points} pts</span>
-                            {chore.assigned_name ? (
-                              <span className="row-inline-meta">
-                                <span className="avatar" style={{ background: chore.assigned_color || undefined }}>
-                                  {chore.assigned_name[0]}
-                                </span>
-                                <span>{chore.assigned_name}</span>
-                              </span>
-                            ) : null}
-                            {chore.pending_sync ? <span>Sincronización pendiente</span> : null}
-                          </div>
-                        </div>
-
-                        <div className="chore-inline-actions">
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-sm"
-                            onClick={() => void setChoreStatus(chore, chore.status === 'done' ? 'pending' : 'done')}
-                          >
-                            {chore.status === 'done' ? 'Reabrir' : 'Hecha'}
-                          </button>
-                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmDeleteChoreId(chore.id)}>
-                            🗑
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <InlineEmptyState
-                      title="Sin tareas del hogar en esta fecha"
-                      copy="Añade una rutina recurrente para que este día no quede vacío si normalmente toca algo."
-                      actionLabel="Crear tarea"
-                      onAction={() => setShowChoreModal(true)}
-                    />
-                  )}
-                </div>
-              </div>
-            ) : null}
-          </Surface>
-
-          <Surface title="Actividad del hogar" subtitle="Lo próximo y lo reciente">
-            {dashboardMeta?.activity?.length ? (
-              <div className="dashboard-activity-list compact">
-                {dashboardMeta.activity.slice(0, 5).map((item) => (
-                  <div key={item.id} className="activity-row static">
-                    <div>
-                      <strong>{item.title}</strong>
-                      <p>{item.detail}</p>
-                    </div>
-                    <span>{item.type === 'event' ? 'Agenda' : 'Compra'}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="empty-state compact left">Todavía no hay actividad reciente destacada.</p>
-            )}
-          </Surface>
-
-          <Surface title="Resumen visible" subtitle="Completadas en el rango actual">
-            {stats.length ? (
-              <div className="stack-list compact">
-                {stats.map((stat) => (
-                  <div key={stat.id} className="list-row">
-                    <div className="row-inline-meta">
-                      <span className="avatar" style={{ background: stat.color }}>{stat.name[0]}</span>
-                      <strong>{stat.name}</strong>
-                    </div>
-                    <div className="row-inline-meta">
-                      <span>{stat.completed ?? 0}</span>
-                      <span className="muted-inline">{stat.points ?? 0} pts</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="empty-state compact left">Aún no hay tareas completadas en este periodo.</p>
-            )}
-          </Surface>
+            <Icon name="chevronLeft" size={18} />
+          </button>
+          <h2>{toolbarLabel}</h2>
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon cal-nav-btn"
+            aria-label={mode === 'month' ? t('cal.nextMonth') : t('cal.nextDay')}
+            onClick={() => (mode === 'month' ? setCurrentMonth(addMonths(currentMonth, 1)) : stepDay(1))}
+          >
+            <Icon name="chevronRight" size={18} />
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={goToday}>
+            {t('cal.today')}
+          </button>
         </div>
+        <SegmentedControl
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: 'month', label: t('cal.modeMonth') },
+            { value: 'agenda', label: t('cal.modeDay') },
+          ]}
+        />
+      </div>
+
+      {error ? <p className="cal-offline">{error}</p> : null}
+      {isOffline ? <p className="cal-offline">{t('cal.offline')}</p> : null}
+
+      <div className="cal-layout">
+        {mode === 'month' ? (
+          <section aria-label={format(currentMonth, 'MMMM yyyy', { locale: dateLocale() })}>
+            <div className="cal-weekhead" aria-hidden="true">
+              {WEEKDAY_KEYS.map((key) => (
+                <span key={key}>{t(key)}</span>
+              ))}
+            </div>
+            <div className="cal-grid">
+              {monthDays.map((day) => {
+                const key = format(day, 'yyyy-MM-dd');
+                const dayEvents = eventsByDay.get(key) || [];
+                const dayChores = choresByDay.get(key) || [];
+                const visible = [
+                  ...dayEvents.map((event) => ({
+                    id: `event-${event.id}`,
+                    label: event.title,
+                    tone: event.category || 'shared',
+                    done: false,
+                  })),
+                  ...dayChores.map((chore) => ({
+                    id: `chore-${chore.id}`,
+                    label: chore.title,
+                    tone: chore.status === 'done' ? 'done' : 'pending',
+                    done: chore.status === 'done',
+                  })),
+                ].slice(0, 3);
+                const extraCount = dayEvents.length + dayChores.length - visible.length;
+
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`cal-cell ${isSameMonth(day, currentMonth) ? '' : 'outside'} ${isSameDay(day, selectedDate) ? 'selected' : ''} ${isToday(day) ? 'today' : ''}`.trim()}
+                    onClick={() => setSelectedDate(day)}
+                    aria-label={format(day, dateFormats.weekdayDayMonth(), { locale: dateLocale() })}
+                    aria-pressed={isSameDay(day, selectedDate)}
+                  >
+                    <span className="cal-date">{format(day, 'd')}</span>
+                    <span className="cal-items">
+                      {visible.map((item) => (
+                        <span key={item.id} className={`cal-item ${item.done ? 'done' : ''}`}>
+                          <span className={`cal-item-dot ${item.tone}`} aria-hidden="true" />
+                          <span className="cal-item-label">{item.label}</span>
+                        </span>
+                      ))}
+                      {extraCount > 0 ? <span className="cal-more">{t('cal.more', extraCount)}</span> : null}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        <section className="cal-day" aria-label={t('cal.dayDetail')}>
+          {mode === 'agenda' ? null : (
+            <>
+              <h2>{format(selectedDate, dateFormats.weekdayDayMonth(), { locale: dateLocale() })}</h2>
+              <p className="cal-day-counts">
+                {t(selectedDayEvents.length === 1 ? 'cal.eventsOne' : 'cal.eventsMany', selectedDayEvents.length)} · {t(selectedDayChores.length === 1 ? 'cal.choresOne' : 'cal.choresMany', selectedDayChores.length)}
+              </p>
+            </>
+          )}
+
+          <div className="cal-group">
+            <h3>{t('cal.events')}</h3>
+            {selectedDayEvents.length ? (
+              <ul className="cal-list">
+                {selectedDayEvents.map((event) => (
+                  <li key={event.id}>
+                    <button type="button" className="cal-event" onClick={() => openEditEvent(event)}>
+                      <span className="cal-event-time">{format(new Date(event.start_datetime), 'HH:mm')}</span>
+                      <span className="cal-event-title">{event.title}</span>
+                      {event.description ? <span className="cal-event-desc">{event.description}</span> : null}
+                      {event.pending_sync ? <span className="cal-pending">{t('cal.pendingSync')}</span> : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="empty-state">
+                <p>{t('cal.noEventsDay')}</p>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => openCreateEvent(selectedDate)}>
+                  {t('cal.createEvent')}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="cal-group">
+            <h3>{t('cal.chores')}</h3>
+            {selectedDayChores.length ? (
+              <ul className="cal-list">
+                {selectedDayChores.map((chore) => (
+                  <li key={chore.id} className={`cal-chore ${chore.status === 'done' ? 'done' : ''}`}>
+                    <div>
+                      <span className="cal-chore-title">{chore.title}</span>
+                      <span className="cal-chore-meta">
+                        <span>{chore.location || t('cal.noLocation')}</span>
+                        <span>{t((chore.points ?? 0) === 1 ? 'cal.pointsOne' : 'cal.pointsMany', chore.points ?? 0)}</span>
+                        {chore.assigned_name ? (
+                          <span className="cal-assignee">
+                            <span
+                              className="cal-avatar"
+                              style={{ background: chore.assigned_color || undefined }}
+                              aria-hidden="true"
+                            >
+                              {chore.assigned_name[0]}
+                            </span>
+                            {chore.assigned_name}
+                          </span>
+                        ) : null}
+                        {chore.pending_sync ? <span>{t('cal.syncPending')}</span> : null}
+                      </span>
+                    </div>
+                    <div className="cal-chore-actions">
+                      <button
+                        type="button"
+                        className="cal-textbtn"
+                        onClick={() => void setChoreStatus(chore, chore.status === 'done' ? 'pending' : 'done')}
+                      >
+                        {chore.status === 'done' ? t('cal.reopen') : t('cal.done')}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-icon cal-iconbtn"
+                        aria-label={t('cal.deleteChore', chore.title)}
+                        onClick={() => setConfirmDeleteChoreId(chore.id)}
+                      >
+                        <Icon name="trash" size={16} />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="empty-state">
+                <p>{t('cal.noChoresDay')}</p>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowChoreModal(true)}>
+                  {t('cal.createChore')}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="cal-context">
+            {dashboardMeta?.summary?.text ? (
+              <section aria-label={t('cal.summary')}>
+                <h3>{t('cal.summary')}</h3>
+                <p>{dashboardMeta.summary.text}</p>
+              </section>
+            ) : null}
+
+            <section aria-label={t('cal.homeActivity')}>
+              <h3>{t('cal.homeActivity')}</h3>
+              {dashboardMeta?.activity?.length ? (
+                <ul className="cal-plain-list">
+                  {dashboardMeta.activity.slice(0, 5).map((item) => (
+                    <li key={item.id}>
+                      <div>
+                        <span className="cal-activity-title">{item.title}</span>
+                        <p className="cal-activity-detail">{item.detail}</p>
+                      </div>
+                      <span className="cal-activity-kind">{item.type === 'event' ? t('cal.kindAgenda') : t('cal.kindShopping')}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>{t('cal.noActivity')}</p>
+              )}
+            </section>
+
+            <section aria-label={t('cal.pointsByPerson')}>
+              <h3>{t('cal.pointsByPerson')}</h3>
+              {stats.length ? (
+                <ul className="cal-plain-list">
+                  {stats.map((stat) => (
+                    <li key={stat.id}>
+                      <span className="cal-rank">
+                        <span className="cal-avatar" style={{ background: stat.color }} aria-hidden="true">
+                          {stat.name[0]}
+                        </span>
+                        {stat.name}
+                      </span>
+                      <span className="cal-rank-points">
+                        {t((stat.completed ?? 0) === 1 ? 'cal.doneOne' : 'cal.doneMany', stat.completed ?? 0)} · {t((stat.points ?? 0) === 1 ? 'cal.pointsOne' : 'cal.pointsMany', stat.points ?? 0)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>{t('cal.noPoints')}</p>
+              )}
+            </section>
+          </div>
+        </section>
       </div>
 
       <ConfirmModal
@@ -641,9 +661,13 @@ export default function Calendar() {
         <div className="modal-overlay" onClick={() => setShowEventModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">{editingEvent ? t('calendar.editEvent') : t('calendar.newEvent')}</span>
-              <button className="modal-close touch-target" onClick={() => setShowEventModal(false)} aria-label={t('common.close')}>
-                ×
+              <span className="modal-title">{editingEvent ? t('calendar.editEvent') : t('cal.newEventTitle')}</span>
+              <button
+                className="modal-close cal-modal-close"
+                onClick={() => setShowEventModal(false)}
+                aria-label={t('common.close')}
+              >
+                <Icon name="close" size={18} />
               </button>
             </div>
             <div className="modal-body">
@@ -661,7 +685,7 @@ export default function Calendar() {
               </div>
               <div className="field-grid two">
                 <div className="form-group">
-                  <label className="label">Inicio</label>
+                  <label className="label" htmlFor="event-start">{t('cal.start')}</label>
                   <input
                     id="event-start"
                     type="datetime-local"
@@ -671,7 +695,7 @@ export default function Calendar() {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="label">Fin</label>
+                  <label className="label" htmlFor="event-end">{t('cal.end')}</label>
                   <input
                     id="event-end"
                     type="datetime-local"
@@ -682,7 +706,7 @@ export default function Calendar() {
                 </div>
               </div>
               <div className="form-group">
-                <label className="label">Categoría</label>
+                <label className="label" htmlFor="event-category">{t('cal.category')}</label>
                 <select
                   id="event-category"
                   className="input"
@@ -695,8 +719,9 @@ export default function Calendar() {
                 </select>
               </div>
               <div className="form-group">
-                <label className="label">Descripción (opcional)</label>
+                <label className="label" htmlFor="event-description">{t('cal.descriptionOpt')}</label>
                 <textarea
+                  id="event-description"
                   className="input"
                   value={eventForm.description}
                   onChange={(e) => setEventForm((current) => ({ ...current, description: e.target.value }))}
@@ -727,8 +752,12 @@ export default function Calendar() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title">{t('chores.newRecurring')}</span>
-              <button className="modal-close touch-target" onClick={() => setShowChoreModal(false)} aria-label={t('common.close')}>
-                ×
+              <button
+                className="modal-close cal-modal-close"
+                onClick={() => setShowChoreModal(false)}
+                aria-label={t('common.close')}
+              >
+                <Icon name="close" size={18} />
               </button>
             </div>
             <form onSubmit={createChoreTemplate}>
@@ -803,7 +832,7 @@ export default function Calendar() {
                       value={choreForm.default_assignee_user_id}
                       onChange={(e) => setChoreForm((current) => ({ ...current, default_assignee_user_id: e.target.value }))}
                     >
-                      <option value="">Sin asignar</option>
+                      <option value="">{t('cal.unassigned')}</option>
                       {members.map((member) => (
                         <option key={member.id} value={member.id}>
                           {member.name}
@@ -826,28 +855,6 @@ export default function Calendar() {
           </div>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function InlineEmptyState({
-  title,
-  copy,
-  actionLabel,
-  onAction,
-}: {
-  title: string;
-  copy: string;
-  actionLabel: string;
-  onAction: () => void;
-}) {
-  return (
-    <div className="empty-state-panel left">
-      <strong>{title}</strong>
-      <p>{copy}</p>
-      <button type="button" className="btn btn-secondary btn-sm" onClick={onAction}>
-        {actionLabel}
-      </button>
     </div>
   );
 }

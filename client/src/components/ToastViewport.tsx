@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { useToastStore } from '../store/toast';
 
 export default function ToastViewport() {
@@ -14,7 +15,7 @@ export default function ToastViewport() {
             <strong>{item.title}</strong>
             {item.message ? <p>{item.message}</p> : null}
           </div>
-          <button type="button" className="toast-close" onClick={() => remove(item.id)} aria-label="Cerrar aviso">
+          <button type="button" className="toast-close" onClick={() => remove(item.id)} aria-label={t('shell.closeNotice')}>
             ×
           </button>
         </div>

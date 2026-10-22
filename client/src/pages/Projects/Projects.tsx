@@ -23,6 +23,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { api } from '../../api';
 import { t } from '../../i18n';
 import ConfirmModal from '../../components/ConfirmModal';
+import SectionHeader from '../../components/SectionHeader';
+import Icon from '../../components/Icon';
 import { toastError } from '../../store/toast';
 import type {
     AuthUser,
@@ -33,6 +35,7 @@ import type {
     ProjectTaskPriority,
     ProjectTaskStatus,
 } from '../../../../shared/contracts';
+import './Projects.css';
 
 type ProjectFormState = Pick<ProjectInput, 'name' | 'description'>;
 type TaskFormState = {
@@ -49,7 +52,7 @@ function ProjectList() {
     const [showModal, setShowModal] = useState(false);
     const [form, setForm] = useState<ProjectFormState>({ name: '', description: '' });
     const navigate = useNavigate();
-    
+
     // Modal state
     const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
 
@@ -70,51 +73,80 @@ function ProjectList() {
         load();
     };
 
+    const handleRestore = async (id: string) => {
+        await api.projects.update(id, { status: 'active' });
+        load();
+    };
+
     const active = projects.filter(p => p.status === 'active');
     const archived = projects.filter(p => p.status === 'archived');
 
     return (
-        <div className="page">
-            <div className="page-header">
-                <div className="page-title">{t('page.projects')}</div>
-                <button 
-                  id="projects-add" 
-                  className="btn btn-primary btn-sm touch-target" 
-                  onClick={() => setShowModal(true)}
-                  aria-label={t('projects.addProject')}
-                >
-                    {t('projects.addProject')}
-                </button>
-            </div>
-            {active.map(p => (
-                <div key={p.id} className="project-item" onClick={() => navigate(`/projects/${p.id}`)}>
-                    <div style={{ flex: 1 }}>
-                        <div className="project-name">{p.name}</div>
-                        {p.description && <div className="project-meta">{p.description}</div>}
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <span className="badge badge-green">{t('projects.active')}</span>
-                        <button 
-                            className="btn-icon touch-target" 
-                            onClick={e => { e.stopPropagation(); setConfirmArchiveId(p.id); }} 
-                            title={t('projects.archive')}
-                            aria-label={`${t('projects.archive')} ${p.name}`}
-                        >
-                            📦
-                        </button>
-                    </div>
-                </div>
-            ))}
-            {active.length === 0 && <p className="empty-state"><span className="icon">📋</span><br />{t('projects.noActive')}</p>}
-            {archived.length > 0 && <>
-                <div className="divider" style={{ margin: '24px 0 16px' }} />
-                <div className="dash-section-title">{t('projects.archivedTitle')}</div>
-                {archived.map(p => (
-                    <div key={p.id} className="project-item" style={{ opacity: 0.5 }} onClick={() => navigate(`/projects/${p.id}`)}>
-                        <div className="project-name">{p.name}</div>
-                    </div>
-                ))}
-            </>}
+        <div className="page projects-page">
+            <SectionHeader
+                title={t('page.projects')}
+                actions={
+                    <button
+                        id="projects-add"
+                        className="btn btn-primary btn-sm"
+                        onClick={() => setShowModal(true)}
+                    >
+                        <Icon name="plus" size={16} aria-hidden="true" />
+                        {t('projects.newProject')}
+                    </button>
+                }
+            />
+            {active.length > 0 && (
+                <ul className="projects-list">
+                    {active.map(p => (
+                        <li key={p.id} className="projects-row">
+                            <button
+                                type="button"
+                                className="projects-row-main"
+                                onClick={() => navigate(`/projects/${p.id}`)}
+                            >
+                                <span className="projects-row-name">{p.name}</span>
+                                {p.description && <span className="projects-row-desc">{p.description}</span>}
+                            </button>
+                            <button
+                                className="icon-button"
+                                onClick={() => setConfirmArchiveId(p.id)}
+                                aria-label={t('projUi.archiveProject', p.name)}
+                            >
+                                <Icon name="archive" size={18} aria-hidden="true" />
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {active.length === 0 && (
+                <p className="empty-state">{t('projUi.emptyActive')}</p>
+            )}
+            {archived.length > 0 && (
+                <section aria-label={t('projects.archivedTitle')}>
+                    <ul className="projects-list">
+                        {archived.map(p => (
+                            <li key={p.id} className="projects-row projects-row--archived">
+                                <button
+                                    type="button"
+                                    className="projects-row-main"
+                                    onClick={() => navigate(`/projects/${p.id}`)}
+                                >
+                                    <span className="projects-row-name">{p.name}</span>
+                                    {p.description && <span className="projects-row-desc">{p.description}</span>}
+                                </button>
+                                <button
+                                    className="icon-button"
+                                    onClick={() => void handleRestore(p.id)}
+                                    aria-label={t('projUi.restoreProject', p.name)}
+                                >
+                                    <Icon name="undo" size={18} aria-hidden="true" />
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
 
             <ConfirmModal
                 isOpen={!!confirmArchiveId}
@@ -130,7 +162,9 @@ function ProjectList() {
                     <div className="modal" onClick={e => e.stopPropagation()}>
                         <div className="modal-header">
                             <span className="modal-title">{t('projects.newProject')}</span>
-                            <button className="modal-close touch-target" onClick={() => setShowModal(false)} aria-label={t('common.close')}>×</button>
+                            <button className="modal-close" onClick={() => setShowModal(false)} aria-label={t('common.close')}>
+                                <Icon name="close" size={18} aria-hidden="true" />
+                            </button>
                         </div>
                         <form onSubmit={create}>
                             <div className="form-group">
@@ -155,22 +189,38 @@ function ProjectList() {
 
 const STATUSES: ProjectTaskStatus[] = ['todo', 'inProgress', 'done'];
 
+function isOverdue(task: ProjectTask): boolean {
+    if (!task.due_date || task.status === 'done') return false;
+    return task.due_date.slice(0, 10) < new Date().toISOString().slice(0, 10);
+}
+
 function TaskCard({ task, onClick, isOverlay, style }: { task: ProjectTask | undefined, onClick?: () => void, isOverlay?: boolean, style?: React.CSSProperties }) {
     if (!task) return null;
     return (
         <div
             style={style}
-            className={`task-card ${isOverlay ? 'dragging-overlay' : ''}`}
+            className={`projects-task${isOverlay ? ' projects-task--overlay' : ''}`}
             onClick={onClick}
         >
-            <div className="task-title">{task.title}</div>
-            <div className="task-meta">
-                <span className={`priority-badge priority-${task.priority}`}>{t(`projects.${task.priority}`)}</span>
-                {task.assigned_name && (
-                    <span className="avatar" style={{ background: task.assigned_color || undefined }} title={task.assigned_name}>{task.assigned_name[0]}</span>
+            <span className="projects-task-title">{task.title}</span>
+            <span className="projects-task-meta">
+                <span className={`projects-flag projects-flag--${task.priority}`}>
+                    <Icon name="flag" size={13} aria-hidden="true" />
+                    <span>{t(`projects.${task.priority}`)}</span>
+                </span>
+                {task.due_date && (
+                    <span className={isOverdue(task) ? 'projects-due projects-due--over' : 'projects-due'}>
+                        <Icon name="calendar" size={13} aria-hidden="true" />
+                        <span>{task.due_date.slice(0, 10)}</span>
+                    </span>
                 )}
-                {task.due_date && <span>📅 {task.due_date.slice(0, 10)}</span>}
-            </div>
+                {task.assigned_name && (
+                    <span className="projects-assignee">
+                        <span className="projects-dot" style={task.assigned_color ? { background: task.assigned_color } : undefined} aria-hidden="true" />
+                        <span>{task.assigned_name}</span>
+                    </span>
+                )}
+            </span>
         </div>
     );
 }
@@ -202,15 +252,9 @@ function SortableTask({ task, onClick }: { task: ProjectTask, onClick: () => voi
 function DroppableColumn({ status, children }: { status: string, children: React.ReactNode }) {
     const { setNodeRef, isOver } = useDroppable({ id: status });
     return (
-        <div 
-            ref={setNodeRef} 
-            className={`kanban-task-list ${isOver ? 'drop-active' : ''}`}
-            style={{ 
-                minHeight: 100, 
-                borderRadius: 8, 
-                transition: 'background var(--transition-fast)',
-                background: isOver ? 'rgba(var(--accent-rgb), 0.05)' : 'transparent'
-             }}
+        <div
+            ref={setNodeRef}
+            className={`projects-col-list${isOver ? ' projects-col-list--over' : ''}`}
         >
             {children}
         </div>
@@ -226,7 +270,7 @@ function ProjectBoard() {
     const [editTask, setEditTask] = useState<ProjectTask | null>(null);
     const [activeId, setActiveId] = useState<string | null>(null);
     const [form, setForm] = useState<TaskFormState>({ title: '', description: '', priority: 'medium', status: 'todo', assigned_user_id: '', due_date: '' });
-    
+
     // Modal state
     const [confirmDeleteTaskId, setConfirmDeleteTaskId] = useState<string | null>(null);
 
@@ -269,9 +313,9 @@ function ProjectBoard() {
             try {
                 const updatedTask = await api.projects.updateTask(activeTask.id, { status: newStatus });
                 setTasks(prev => prev.map(t => t.id === updatedTask.id ? { ...t, ...updatedTask } : t));
-            } catch (error: any) {
+            } catch (error: unknown) {
                 setTasks(previousTasks);
-                toastError('No se pudo mover la tarea', error?.message || 'Vuelve a intentarlo.');
+                toastError(t('projUi.moveFailed'), error instanceof Error ? error.message : t('projUi.moveFailedDetail'));
             }
         }
     };
@@ -309,59 +353,65 @@ function ProjectBoard() {
     };
 
     return (
-        <div className="page" style={{ maxWidth: '100%' }}>
-            <div className="page-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <button className="btn-icon touch-target" onClick={() => navigate('/projects')} aria-label={t('common.back', 'Volver')}>←</button>
-                    <div className="page-title">{t('projects.tasks')}</div>
-                </div>
-                <button id="task-add" className="btn btn-primary btn-sm touch-target" onClick={() => openCreate()} aria-label={t('projects.addTask')}>
-                    {t('projects.addTask')}
+        <div className="page projects-page">
+            <div className="projects-board-top">
+                <button className="icon-button" onClick={() => navigate('/projects')} aria-label={t('common.back', 'Volver')}>
+                    <Icon name="chevronLeft" size={20} aria-hidden="true" />
+                </button>
+                <h1 className="projects-board-title">{t('projects.tasks')}</h1>
+                <button id="task-add" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
+                    <Icon name="plus" size={16} aria-hidden="true" />
+                    {t('projects.newTask')}
                 </button>
             </div>
-            
-            <DndContext 
+
+            <DndContext
                 sensors={sensors}
                 collisionDetection={closestCorners}
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
             >
-                <div className="kanban">
-                    {STATUSES.map(status => (
-                        <div key={status} className="kanban-col">
-                            <div className="kanban-col-header">
-                                {status === 'todo' ? t('projects.statusTodo') : status === 'inProgress' ? t('projects.statusInProgress') : t('projects.statusDone')}
-                                <span className="badge" style={{ marginLeft: 8, opacity: 0.6 }}>{tasks.filter(t => t.status === status).length}</span>
-                            </div>
-                            <button
-                                className="btn btn-ghost btn-sm touch-target"
-                                style={{ width: '100%', marginBottom: 12, justifyContent: 'center' }}
-                                onClick={() => openCreate(status)}
-                            >{t('projects.add')}</button>
-                            
-                            <SortableContext 
-                                id={status}
-                                items={tasks.filter(t => t.status === status).map(t => t.id)}
-                                strategy={verticalListSortingStrategy}
-                            >
-                                <DroppableColumn status={status}>
-                                    {tasks.filter(t => t.status === status).map(task => (
-                                        <SortableTask 
-                                            key={task.id} 
-                                            task={task} 
-                                            onClick={() => openEdit(task)} 
-                                        />
-                                    ))}
-                                </DroppableColumn>
-                            </SortableContext>
-                        </div>
-                    ))}
+                <div className="projects-board">
+                    {STATUSES.map(status => {
+                        const columnTasks = tasks.filter(t => t.status === status);
+                        return (
+                            <section key={status} className="projects-col" aria-label={status === 'todo' ? t('projects.statusTodo') : status === 'inProgress' ? t('projects.statusInProgress') : t('projects.statusDone')}>
+                                <div className="projects-col-head">
+                                    <h2>{status === 'todo' ? t('projects.statusTodo') : status === 'inProgress' ? t('projects.statusInProgress') : t('projects.statusDone')}</h2>
+                                    <span className="projects-count">{columnTasks.length === 1 ? t('projUi.tasksCountOne', columnTasks.length) : t('projUi.tasksCountMany', columnTasks.length)}</span>
+                                </div>
+                                <button
+                                    className="btn btn-ghost btn-sm projects-col-add"
+                                    onClick={() => openCreate(status)}
+                                >
+                                    <Icon name="plus" size={16} aria-hidden="true" />
+                                    {t('projUi.addTaskCol')}
+                                </button>
+
+                                <SortableContext
+                                    id={status}
+                                    items={columnTasks.map(t => t.id)}
+                                    strategy={verticalListSortingStrategy}
+                                >
+                                    <DroppableColumn status={status}>
+                                        {columnTasks.map(task => (
+                                            <SortableTask
+                                                key={task.id}
+                                                task={task}
+                                                onClick={() => openEdit(task)}
+                                            />
+                                        ))}
+                                    </DroppableColumn>
+                                </SortableContext>
+                            </section>
+                        );
+                    })}
                 </div>
                 <DragOverlay dropAnimation={null}>
                     {activeId ? (
-                        <TaskCard 
-                            task={tasks.find(t => t.id === activeId)} 
-                            isOverlay 
+                        <TaskCard
+                            task={tasks.find(t => t.id === activeId)}
+                            isOverlay
                         />
                     ) : null}
                 </DragOverlay>
@@ -382,7 +432,9 @@ function ProjectBoard() {
                     <div className="modal" onClick={e => e.stopPropagation()}>
                         <div className="modal-header">
                             <span className="modal-title">{editTask ? t('projects.editTask') : t('projects.newTask')}</span>
-                            <button className="modal-close touch-target" onClick={() => setShowModal(false)} aria-label={t('common.close')}>×</button>
+                            <button className="modal-close" onClick={() => setShowModal(false)} aria-label={t('common.close')}>
+                                <Icon name="close" size={18} aria-hidden="true" />
+                            </button>
                         </div>
                         <div className="modal-body">
                             <div className="form-group">

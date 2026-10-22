@@ -6,6 +6,10 @@ export const authApi = {
         request<LoginResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
     register: (name: string, username: string, password: string) =>
         request<{ user: AuthUser }>('/auth/register', { method: 'POST', body: JSON.stringify({ name, username, password }) }),
+    getBootstrapStatus: () =>
+        request<{ needsBootstrap: boolean }>('/auth/bootstrap-status'),
+    registerFirstAdmin: (name: string, username: string, password: string) =>
+        request<{ user: AuthUser }>('/auth/register-first-admin', { method: 'POST', body: JSON.stringify({ name, username, password }) }),
     getUsers: () => request<AuthUser[]>('/auth/users'),
     changePassword: (id: string, password: string) =>
         request<{ success: boolean }>(`/auth/users/${id}/password`, { method: 'PUT', body: JSON.stringify({ password }) }),

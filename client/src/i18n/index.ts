@@ -1,5 +1,16 @@
-export const translations: Record<string, Record<string, string>> = {
-  es: {
+import * as calendar from './locales/calendar';
+import * as dashboard from './locales/dashboard';
+import * as meals from './locales/meals';
+import * as shopping from './locales/shopping';
+import * as projects from './locales/projects';
+import * as recipes from './locales/recipes';
+import * as shell from './locales/shell';
+import * as admin from './locales/admin';
+import { enBase } from './locales/en-base';
+
+export type Lang = 'es' | 'en';
+
+const baseEs: Record<string, string> = {
     // Navigation
     'nav.dashboard': 'Inicio',
     'nav.shopping': 'Lista de la compra',
@@ -42,6 +53,7 @@ export const translations: Record<string, Record<string, string>> = {
     'auth.login': 'Iniciar sesión',
     'auth.register': 'Registrarse',
     'auth.name': 'Nombre',
+    'auth.username': 'Usuario',
     'auth.namePlaceholder': 'Tu nombre',
     'auth.email': 'Correo electrónico',
     'auth.emailPlaceholder': 'tu@ejemplo.com',
@@ -236,24 +248,62 @@ export const translations: Record<string, Record<string, string>> = {
     'meals.weekSkippedTextMeals': 'Comidas de texto omitidas',
     'meals.generateWeekShoppingSuccess': 'He añadido {{0}} artículos a la lista.',
     'meals.openShopping': 'Abrir lista de compra'
-  }
 };
 
-let currentLang = 'es';
+const areas = [calendar, dashboard, meals, shopping, projects, recipes, shell, admin];
 
-export function setLanguage(lang: string) {
-  currentLang = lang;
+export const translations: Record<Lang, Record<string, string>> = {
+  es: Object.assign({}, baseEs, ...areas.map((a) => a.es)),
+  en: Object.assign({}, enBase, ...areas.map((a) => a.en)),
+};
+
+const STORAGE_KEY = 'laris.lang';
+
+function detectLanguage(): Lang {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === 'es' || stored === 'en') return stored;
+  } catch {
+    /* storage no disponible */
+  }
+  return typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('en') ? 'en' : 'es';
+}
+
+let currentLang: Lang = detectLanguage();
+if (typeof document !== 'undefined') document.documentElement.lang = currentLang;
+
+export function getLanguage(): Lang {
+  return currentLang;
+}
+
+/** Persiste el idioma y recarga: `t()` se evalúa en el render, así que es lo más simple que funciona. */
+export function setLanguage(lang: Lang) {
+  if (lang === currentLang) return;
+  try {
+    localStorage.setItem(STORAGE_KEY, lang);
+  } catch {
+    /* storage no disponible */
+  }
+  window.location.reload();
 }
 
 export function t(key: string, ...args: any[]): string {
   const langDict = translations[currentLang];
-  let text = langDict?.[key] || key;
-  
-  if (args.length > 0) {
+  const found = langDict?.[key];
+  if (found !== undefined) {
+    let text = found;
     args.forEach((val, idx) => {
-      text = text.replace(`{{${idx}}}`, val);
+      text = text.replace(`{{${idx}}}`, String(val));
     });
+    return text;
   }
-  
-  return text;
+  const fallback = args[0];
+  if (typeof fallback === 'string') {
+    let text = fallback;
+    args.slice(1).forEach((val, idx) => {
+      text = text.replace(`{{${idx}}}`, String(val));
+    });
+    return text;
+  }
+  return key;
 }

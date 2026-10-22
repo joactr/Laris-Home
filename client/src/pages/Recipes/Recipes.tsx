@@ -7,7 +7,37 @@ import { toastError, toastSuccess } from '../../store/toast';
 import StatusModal from '../../components/StatusModal';
 import SectionHeader from '../../components/SectionHeader';
 import Surface from '../../components/Surface';
-import type { RecipeRecord, VoiceRecipeSuggestion } from '../../../../shared/contracts';
+import Icon from '../../components/Icon';
+import type { RecipeRecord, RecipeRecordIngredient, VoiceRecipeSuggestion, ShoppingList } from '../../../../shared/contracts';
+import './Recipes.css';
+
+function metaLine(recipe: RecipeRecord): string {
+  const parts: string[] = [];
+  if (recipe.servings) parts.push(t(recipe.servings === 1 ? 'rec.servingsOne' : 'rec.servingsMany', recipe.servings));
+  const mins = (recipe.prep_time_minutes || 0) + (recipe.cook_time_minutes || 0);
+  if (recipe.calories_per_serving) parts.push(`${recipe.calories_per_serving} kcal`);
+  return parts.join(' · ');
+}
+
+function Stars({ value, onChange }: { value: number | null; onChange: (next: number | null) => void }) {
+  return (
+    <span className="recipe-stars" role="group" aria-label={t('rec.ratingLabel')}>
+      <span className="recipe-stars-label" aria-hidden="true">{t('rec.ratingLabel')}</span>
+      {[1, 2, 3, 4, 5].map((star) => (
+        <button
+          key={star}
+          type="button"
+          aria-pressed={value === star}
+          aria-label={t('rec.ratingStar', star)}
+          title={t('rec.ratingStar', star)}
+          onClick={() => onChange(value === star ? null : star)}
+        >
+          <Icon name="star" size={18} fill={value != null && star <= value ? 'currentColor' : 'none'} />
+        </button>
+      ))}
+    </span>
+  );
+}
 
 export default function Recipes() {
   const navigate = useNavigate();
@@ -17,10 +47,10 @@ export default function Recipes() {
   const [selectedTag, setSelectedTag] = useState('');
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [availableTags, setAvailableTags] = useState<Array<{ id: string; name: string }>>([]);
-  const [shoppingLists, setShoppingLists] = useState<any[]>([]);
+  const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([]);
   const [ingredientModal, setIngredientModal] = useState<{
     recipe: RecipeRecord;
-    ingredients: Array<{ id: string; name: string; original_text: string }>;
+    ingredients: RecipeRecordIngredient[];
     selected: string[];
     listId: string;
   } | null>(null);
@@ -76,10 +106,11 @@ export default function Recipes() {
 
   const openIngredientModal = async (recipe: RecipeRecord) => {
     const detail = await api.recipes.getById(recipe.id);
+    const ingredients: RecipeRecordIngredient[] = detail.ingredients || [];
     setIngredientModal({
       recipe,
-      ingredients: (detail.ingredients || []) as any[],
-      selected: (detail.ingredients || []).map((ingredient) => ingredient.id),
+      ingredients,
+      selected: ingredients.map((ingredient) => ingredient.id),
       listId: shoppingLists[0]?.id || '',
     });
   };
@@ -128,122 +159,130 @@ export default function Recipes() {
       });
       await load();
       setSuggestedRecipes(null);
-      toastSuccess('Receta guardada', `${name} ya está en tu recetario.`);
+      toastSuccess(t('rec.savedTitle'), t('rec.savedBody', name));
     } catch {
-      toastError('No se pudo guardar la receta', t('common.error'));
+      toastError(t('rec.saveFailTitle'), t('common.error'));
     } finally {
       setSavingIndex(null);
     }
   };
 
   return (
-    <div className="page page-recipes">
+    <div className="page">
       <SectionHeader
-        eyebrow="Recetario"
         title={t('page.recipes')}
-        subtitle={`${filtered.length} receta${filtered.length === 1 ? '' : 's'} visibles`}
+        subtitle={t(filtered.length === 1 ? 'rec.countOne' : 'rec.countMany', filtered.length)}
         actions={
-          <button type="button" className="btn btn-primary" onClick={() => navigate('/recipes/import')}>
+          <button type="button" className="btn btn-secondary" onClick={() => navigate('/recipes/import')}>
             {t('recipes.importUrl')}
           </button>
         }
       />
 
-      <Surface className="recipes-toolbar">
+      <div className="recipes-search">
+        <Icon name="search" size={18} />
         <input
           className="input search-input"
-          placeholder="Buscar por título, ingrediente, tag o idea…"
+          placeholder={t('rec.searchPlaceholder')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           aria-label={t('common.search')}
+          type="search"
         />
-        <div className="suggestion-row">
-          <button type="button" className={`chip ${favoriteOnly ? 'active' : ''}`} onClick={() => setFavoriteOnly((current) => !current)}>
-            ★ Favoritas
+      </div>
+      <div className="recipes-chip-row" role="group" aria-label={t('rec.filterLabel')}>
+        <button
+          type="button"
+          className={`chip ${favoriteOnly ? 'active' : ''}`}
+          aria-pressed={favoriteOnly}
+          onClick={() => setFavoriteOnly((current) => !current)}
+        >
+          {t('rec.favorites')}
+        </button>
+        {availableTags.map((tag) => (
+          <button
+            key={tag.id}
+            type="button"
+            className={`chip ${selectedTag === tag.name ? 'active' : ''}`}
+            aria-pressed={selectedTag === tag.name}
+            onClick={() => setSelectedTag((current) => current === tag.name ? '' : tag.name)}
+          >
+            {tag.name}
           </button>
-          {availableTags.map((tag) => (
-            <button
-              key={tag.id}
-              type="button"
-              className={`chip ${selectedTag === tag.name ? 'active' : ''}`}
-              onClick={() => setSelectedTag((current) => current === tag.name ? '' : tag.name)}
-            >
-              {tag.name}
-            </button>
-          ))}
-        </div>
-      </Surface>
-
-      <div className="recipes-grid">
-        {filtered.map((recipe) => (
-          <article key={recipe.id} className="recipe-card" onClick={() => navigate(`/recipes/${recipe.id}`)}>
-            <div className="recipe-image-placeholder">
-              {recipe.image_url ? (
-                <img
-                  src={recipe.image_url}
-                  alt={recipe.title}
-                  className="recipe-image"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-              ) : null}
-            </div>
-              <div className="recipe-info">
-                <div className="recipe-card-topline">
-                  {recipe.servings ? <span>{recipe.servings} raciones</span> : <span>Receta</span>}
-                  {recipe.prep_time_minutes ? <span>{recipe.prep_time_minutes + (recipe.cook_time_minutes || 0)} min</span> : null}
-                </div>
-              <h3 className="recipe-title">{recipe.title}</h3>
-              <p className="recipe-description">{recipe.description || 'Sin descripción todavía.'}</p>
-              {recipe.tags?.length ? (
-                <div className="suggestion-row">
-                  {recipe.tags.map((tag) => <span key={tag.id} className="chip">{tag.name}</span>)}
-                </div>
-              ) : null}
-
-              {recipe.calories_per_serving || recipe.protein_per_serving || recipe.carbs_per_serving || recipe.fat_per_serving ? (
-                <div className="planner-macros">
-                  {recipe.calories_per_serving ? <span className="macro-badge-sm calories">{recipe.calories_per_serving} kcal</span> : null}
-                  {recipe.carbs_per_serving ? <span className="macro-badge-sm carbs">{recipe.carbs_per_serving}g C</span> : null}
-                  {recipe.fat_per_serving ? <span className="macro-badge-sm fat">{recipe.fat_per_serving}g G</span> : null}
-                  {recipe.protein_per_serving ? <span className="macro-badge-sm protein">{recipe.protein_per_serving}g P</span> : null}
-                </div>
-              ) : null}
-              <div className="surface-actions" onClick={(event) => event.stopPropagation()}>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void updateRecipePreference(recipe, { isFavorite: !recipe.is_favorite, rating: recipe.my_rating ?? null })}>
-                  {recipe.is_favorite ? '★' : '☆'}
-                </button>
-                <select
-                  className="input"
-                  style={{ width: 86, padding: '6px 8px' }}
-                  value={recipe.my_rating || ''}
-                  onChange={(event) => void updateRecipePreference(recipe, { isFavorite: recipe.is_favorite, rating: event.target.value ? Number(event.target.value) : null })}
-                >
-                  <option value="">Nota</option>
-                  {[1, 2, 3, 4, 5].map((rating) => <option key={rating} value={rating}>{rating}★</option>)}
-                </select>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTagEditor({ recipe, value: (recipe.tags || []).map((tag) => tag.name).join(', ') })}>
-                  Tags
-                </button>
-                <button type="button" className="btn btn-primary btn-sm" onClick={() => void openIngredientModal(recipe)}>
-                  Compra
-                </button>
-              </div>
-            </div>
-          </article>
         ))}
       </div>
+
+      {filtered.length === 0 ? (
+        <div className="empty-state recipes-empty">
+          <p>{t('rec.emptyFilter')}</p>
+          <p>{t('rec.emptyHint')}</p>
+        </div>
+      ) : (
+        <ul className="recipes-list">
+          {filtered.map((recipe) => {
+            const meta = metaLine(recipe);
+            const tags = (recipe.tags || []).map((tag) => tag.name).join(', ');
+            return (
+              <li key={recipe.id}>
+                <article className="recipe-row" onClick={() => navigate(`/recipes/${recipe.id}`)}>
+                  {recipe.image_url ? (
+                    <img
+                      src={recipe.image_url}
+                      alt=""
+                      className="recipe-row-thumb"
+                      loading="lazy"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  ) : null}
+                  <div className="recipe-row-body">
+                    <div className="recipe-row-title-row">
+                      <h2 className="recipe-row-title">{recipe.title}</h2>
+                      <button
+                        type="button"
+                        className="recipe-row-fav"
+                        aria-pressed={!!recipe.is_favorite}
+                        aria-label={t(recipe.is_favorite ? 'rec.removeFavorite' : 'rec.markFavorite')}
+                        title={t(recipe.is_favorite ? 'rec.removeFavorite' : 'rec.markFavorite')}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void updateRecipePreference(recipe, { isFavorite: !recipe.is_favorite, rating: recipe.my_rating ?? null });
+                        }}
+                      >
+                        <Icon name="star" size={20} fill={recipe.is_favorite ? 'currentColor' : 'none'} />
+                      </button>
+                    </div>
+                    {recipe.description ? <p className="recipe-row-desc">{recipe.description}</p> : null}
+                    {meta ? <p className="recipe-row-meta">{meta}</p> : null}
+                    {tags ? <p className="recipe-row-tags">{tags}</p> : null}
+                    <div className="recipe-row-actions" onClick={(event) => event.stopPropagation()}>
+                      <Stars
+                        value={recipe.my_rating ?? null}
+                        onChange={(rating) => void updateRecipePreference(recipe, { isFavorite: recipe.is_favorite, rating })}
+                      />
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setTagEditor({ recipe, value: (recipe.tags || []).map((tag) => tag.name).join(', ') })}>{t('rec.tagsLabel')}</button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => void openIngredientModal(recipe)}>{t('rec.addToShopping')}</button>
+                    </div>
+                  </div>
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       {tagEditor ? (
         <div className="modal-overlay" onClick={() => setTagEditor(null)}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Etiquetas</span>
-              <button className="modal-close touch-target" onClick={() => setTagEditor(null)} aria-label={t('common.close')}>×</button>
+              <span className="modal-title">{t('rec.tagsLabel')}</span>
+              <button className="modal-close touch-target" onClick={() => setTagEditor(null)} aria-label={t('common.close')}>
+                <Icon name="close" size={18} />
+              </button>
             </div>
             <div className="modal-body">
-              <input className="input" value={tagEditor.value} onChange={(event) => setTagEditor({ ...tagEditor, value: event.target.value })} placeholder="rápida, cena, vegetariana" />
+              <input className="input" value={tagEditor.value} onChange={(event) => setTagEditor({ ...tagEditor, value: event.target.value })} placeholder={t('rec.tagsPlaceholder')} aria-label={t('rec.tagsAria')} />
               <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setTagEditor(null)}>{t('common.cancel')}</button>
                 <button
@@ -269,11 +308,14 @@ export default function Recipes() {
         <div className="modal-overlay" onClick={() => setIngredientModal(null)}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Añadir ingredientes</span>
-              <button className="modal-close touch-target" onClick={() => setIngredientModal(null)} aria-label={t('common.close')}>×</button>
+              <span className="modal-title">{t('rec.addIngredients')}</span>
+              <button className="modal-close touch-target" onClick={() => setIngredientModal(null)} aria-label={t('common.close')}>
+                <Icon name="close" size={18} />
+              </button>
             </div>
             <div className="modal-body">
-              <select className="input" value={ingredientModal.listId} onChange={(event) => setIngredientModal({ ...ingredientModal, listId: event.target.value })}>
+              <label className="label" htmlFor="recipe-shopping-list">{t('page.shopping')}</label>
+              <select id="recipe-shopping-list" className="input" value={ingredientModal.listId} onChange={(event) => setIngredientModal({ ...ingredientModal, listId: event.target.value })}>
                 {shoppingLists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}
               </select>
               <div className="modal-stack">
@@ -302,7 +344,7 @@ export default function Recipes() {
                   onClick={async () => {
                     await api.recipes.addToShoppingList(ingredientModal.recipe.id, ingredientModal.listId, ingredientModal.selected);
                     setIngredientModal(null);
-                    toastSuccess('Ingredientes añadidos');
+                    toastSuccess(t('rec.ingredientsAdded'));
                   }}
                 >
                   {t('recipes.addToShoppingList')}
@@ -319,7 +361,7 @@ export default function Recipes() {
             <div className="modal-header">
               <span className="modal-title">{t('recipes.suggestedTitle')}</span>
               <button className="modal-close touch-target" onClick={() => setSuggestedRecipes(null)} aria-label={t('common.close')}>
-                ×
+                <Icon name="close" size={18} />
               </button>
             </div>
             <div className="modal-body">
@@ -375,14 +417,15 @@ export default function Recipes() {
             <div className="modal-header">
               <span className="modal-title">{t('recipes.saveNewAi')}</span>
               <button className="modal-close touch-target" onClick={() => setRecipeToEnrich(null)} aria-label={t('common.close')}>
-                ×
+                <Icon name="close" size={18} />
               </button>
             </div>
             <div className="modal-body">
               <p style={{ marginBottom: 16 }}>{t('recipes.saveNewAiConfirm', recipeToEnrich.name)}</p>
               <div className="form-group">
-                <label className="label">URL de la Imagen (opcional)</label>
+                <label className="label" htmlFor="enrich-image">{t('rec.enrichImageLabel')}</label>
                 <input
+                  id="enrich-image"
                   className="input"
                   type="url"
                   placeholder="https://..."
@@ -394,8 +437,8 @@ export default function Recipes() {
                 <div className="recipe-preview-box">
                   <img
                     src={recipeToEnrich.imageUrl}
-                    alt="Vista previa"
-                    style={{ width: '100%', maxHeight: 220, borderRadius: 14, objectFit: 'cover' }}
+                    alt={t('rec.previewAlt')}
+                    className="recipes-preview"
                     onError={(e) => {
                       e.currentTarget.style.display = 'none';
                     }}

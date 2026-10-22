@@ -1,16 +1,42 @@
 import { useEffect, useMemo, useState } from 'react';
 import { addDays, addWeeks, format, isSameDay, startOfWeek, subWeeks } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 import { t } from '../../i18n';
+import { dateFormats, dateLocale } from '../../i18n/date';
 import { useOfflineStore } from '../../store/offline';
 import { toastError, toastInfo, toastSuccess } from '../../store/toast';
-import CollapsiblePanel from '../../components/CollapsiblePanel';
+import Icon from '../../components/Icon';
 import StatusModal from '../../components/StatusModal';
 import SectionHeader from '../../components/SectionHeader';
+import './Meals.css';
 
 const MEAL_TYPES = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
+type MealType = (typeof MEAL_TYPES)[number];
+
+type MealItem = {
+  id: string;
+  meal_type: string;
+  recipe_id?: string | null;
+  recipe_title?: string | null;
+  text_content?: string | null;
+  servings?: number | null;
+  calories_per_serving?: number | null;
+  protein_per_serving?: number | null;
+  carbs_per_serving?: number | null;
+  fat_per_serving?: number | null;
+};
+
+type RecipeOption = {
+  id: string;
+  title: string;
+  image_url?: string | null;
+  prep_time_minutes?: number | null;
+  cook_time_minutes?: number | null;
+  calories_per_serving?: number | null;
+};
+
+type ShopList = { id: string; name: string };
 
 type WeekShoppingDecision = { key: string; action: 'add' | 'merge' | 'skip'; duplicateItemId?: string | null };
 type WeekShoppingPreviewItem = {
@@ -30,17 +56,31 @@ type WeekShoppingPreview = {
   items: WeekShoppingPreviewItem[];
 };
 
+function errMsg(err: unknown): string {
+  return err instanceof Error && err.message ? err.message : t('common.error');
+}
+
+
+function formatWeekRange(start: Date, end: Date): string {
+  const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
+  if (sameMonth) return `${format(start, 'd')}–${format(end, 'd MMM yyyy', { locale: dateLocale() })}`;
+  if (start.getFullYear() === end.getFullYear()) {
+    return `${format(start, 'd MMM', { locale: dateLocale() })}–${format(end, 'd MMM yyyy', { locale: dateLocale() })}`;
+  }
+  return `${format(start, 'd MMM yyyy', { locale: dateLocale() })}–${format(end, 'd MMM yyyy', { locale: dateLocale() })}`;
+}
+
 export default function Meals() {
   const navigate = useNavigate();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const [mealMap, setMealMap] = useState<Record<string, any[]>>({});
+  const [mealMap, setMealMap] = useState<Record<string, MealItem[]>>({});
   const [editingNew, setEditingNew] = useState<{ date: string; type: string } | null>(null);
   const [editVal, setEditVal] = useState('');
   const [editingItem, setEditingItem] = useState<{ id: string; field: 'servings' | 'text'; val: string | number } | null>(null);
   const [showShoppingModal, setShowShoppingModal] = useState<{ date: string; meal: string } | null>(null);
   const [ingredientText, setIngredientText] = useState('');
-  const [lists, setLists] = useState<any[]>([]);
-  const [recipes, setRecipes] = useState<any[]>([]);
+  const [lists, setLists] = useState<ShopList[]>([]);
+  const [recipes, setRecipes] = useState<RecipeOption[]>([]);
   const [selectedList, setSelectedList] = useState('');
   const [showWeekShoppingModal, setShowWeekShoppingModal] = useState(false);
   const [weekShoppingPreview, setWeekShoppingPreview] = useState<WeekShoppingPreview | null>(null);
@@ -48,7 +88,6 @@ export default function Meals() {
   const [weekShoppingPreviewLoading, setWeekShoppingPreviewLoading] = useState(false);
   const [weekShoppingResult, setWeekShoppingResult] = useState<{ addedCount: number; mergedCount: number; skippedCount: number; skippedTextMealsCount: number } | null>(null);
   const [weekShoppingError, setWeekShoppingError] = useState<string | null>(null);
-  const [openDay, setOpenDay] = useState<string | null>(null);
   const isOffline = useOfflineStore((s) => s.isOffline);
 
   const weekDays = useMemo(
@@ -63,30 +102,21 @@ export default function Meals() {
       api.shopping.getLists(),
       api.recipes.getAll(),
     ]);
-    const nextMap: Record<string, any[]> = {};
-    data.forEach((day) => {
+    const nextMap: Record<string, MealItem[]> = {};
+    (data as Array<{ date: string; items?: MealItem[] }>).forEach((day) => {
       nextMap[day.date.slice(0, 10)] = day.items || [];
     });
     setMealMap(nextMap);
-    setLists(nextLists);
-    setRecipes(nextRecipes);
-    if (!selectedList && nextLists.length) {
-      setSelectedList(nextLists[0].id);
+    setLists(nextLists as ShopList[]);
+    setRecipes(nextRecipes as RecipeOption[]);
+    if (!selectedList && (nextLists as ShopList[]).length) {
+      setSelectedList((nextLists as ShopList[])[0].id);
     }
   };
 
   useEffect(() => {
     void load();
   }, [weekStart]);
-
-  useEffect(() => {
-    setOpenDay((current) => {
-      if (current && weekDays.some((day) => format(day, 'yyyy-MM-dd') === current)) {
-        return current;
-      }
-      return getPreferredOpenDay(weekDays, mealMap);
-    });
-  }, [mealMap, weekDays]);
 
   const startAddNew = (date: string, type: string) => {
     setEditingNew({ date, type });
@@ -111,12 +141,12 @@ export default function Meals() {
       setEditVal('');
       await load();
       if (created.pending_sync) {
-        toastInfo('Comida guardada sin conexión', 'Se sincronizará cuando vuelva la red.');
+        toastInfo(t('mealsUi.savedOffline'), t('mealsUi.savedOfflineDetail'));
       } else {
-        toastSuccess('Comida añadida');
+        toastSuccess(t('mealsUi.added'));
       }
-    } catch (err: any) {
-      toastError('No se pudo añadir la comida', err?.message || t('common.error'));
+    } catch (err: unknown) {
+      toastError(t('mealsUi.addFailed'), errMsg(err));
     }
   };
 
@@ -129,12 +159,12 @@ export default function Meals() {
       setEditingItem(null);
       await load();
       if (updated.pending_sync) {
-        toastInfo('Cambio guardado sin conexión', 'Se sincronizará después.');
+        toastInfo(t('mealsUi.updateSavedOffline'), t('mealsUi.updateSavedOfflineDetail'));
       } else {
-        toastSuccess('Comida actualizada');
+        toastSuccess(t('mealsUi.updated'));
       }
-    } catch (err: any) {
-      toastError('No se pudo actualizar la comida', err?.message || t('common.error'));
+    } catch (err: unknown) {
+      toastError(t('mealsUi.updateFailed'), errMsg(err));
     }
   };
 
@@ -142,9 +172,9 @@ export default function Meals() {
     try {
       await api.meals.deleteItem(id);
       await load();
-      toastSuccess('Comida eliminada');
-    } catch (err: any) {
-      toastError('No se pudo eliminar la comida', err?.message || t('common.error'));
+      toastSuccess(t('mealsUi.deleted'));
+    } catch (err: unknown) {
+      toastError(t('mealsUi.deleteFailed'), errMsg(err));
     }
   };
 
@@ -154,9 +184,9 @@ export default function Meals() {
       await api.meals.addToShopping(showShoppingModal.date, selectedList, ingredientText);
       setShowShoppingModal(null);
       setIngredientText('');
-      toastSuccess('Ingredientes añadidos', 'La lista de compra se ha actualizado.');
-    } catch (err: any) {
-      toastError('No se pudieron añadir los ingredientes', err?.message || t('common.error'));
+      toastSuccess(t('mealsUi.ingredientsAdded'), t('mealsUi.ingredientsAddedDetail'));
+    } catch (err: unknown) {
+      toastError(t('mealsUi.ingredientsFailed'), errMsg(err));
     }
   };
 
@@ -171,16 +201,16 @@ export default function Meals() {
         format(weekEnd, 'yyyy-MM-dd'),
         selectedList
       );
-      setWeekShoppingPreview(preview);
+      setWeekShoppingPreview(preview as WeekShoppingPreview);
       setWeekShoppingDecisions(Object.fromEntries(
-        (preview.items || []).map((item: WeekShoppingPreviewItem) => [
+        ((preview as WeekShoppingPreview).items || []).map((item) => [
           item.key,
           { key: item.key, action: item.defaultAction, duplicateItemId: item.defaultDuplicateItemId },
         ])
       ));
-    } catch (err: any) {
-      setWeekShoppingError(err.message || t('common.error'));
-      toastError('No se pudo preparar la vista previa', err?.message || t('common.error'));
+    } catch (err: unknown) {
+      setWeekShoppingError(errMsg(err));
+      toastError(t('mealsUi.previewFailed'), errMsg(err));
     } finally {
       setWeekShoppingPreviewLoading(false);
     }
@@ -209,184 +239,190 @@ export default function Meals() {
         skippedCount: result.skippedCount || 0,
         skippedTextMealsCount: result.skippedTextMealsCount || 0,
       });
-      toastSuccess('Lista de compra generada', `${result.addedCount || 0} añadidos · ${result.mergedCount || 0} fusionados.`);
-    } catch (err: any) {
-      setWeekShoppingError(err.message || t('common.error'));
-      toastError('No se pudo generar la compra semanal', err?.message || t('common.error'));
+      toastSuccess(t('mealsUi.generated'), t('mealsUi.generatedDetail', result.addedCount || 0, result.mergedCount || 0));
+    } catch (err: unknown) {
+      setWeekShoppingError(errMsg(err));
+      toastError(t('mealsUi.generateFailed'), errMsg(err));
     }
   };
 
   return (
-    <div className="page page-meals">
+    <div className="page">
       <SectionHeader
-        eyebrow="Plan semanal"
         title={t('page.meals')}
-        subtitle={`${format(weekStart, 'MMM d', { locale: es })} - ${format(weekEnd, 'MMM d, yyyy', { locale: es })}`}
+        subtitle={formatWeekRange(weekStart, weekEnd)}
         actions={
-          <div className="header-action-row">
-            <div className="week-switcher">
-              <button type="button" className="btn btn-secondary" onClick={() => setWeekStart(subWeeks(weekStart, 1))}>
-                {t('common.prev')}
+          <div className="meals-actions">
+            <div className="meals-week-nav">
+              <button type="button" className="icon-button" aria-label={t('mealsUi.prevWeek')} onClick={() => setWeekStart(subWeeks(weekStart, 1))}>
+                <Icon name="chevronLeft" size={20} />
               </button>
-              <button type="button" className="btn btn-secondary" onClick={() => setWeekStart(addWeeks(weekStart, 1))}>
-                {t('common.next')}
+              <button type="button" className="icon-button" aria-label={t('mealsUi.nextWeek')} onClick={() => setWeekStart(addWeeks(weekStart, 1))}>
+                <Icon name="chevronRight" size={20} />
               </button>
             </div>
             <button
               type="button"
-              className="btn btn-primary"
-              onClick={openWeekShoppingModal}
+              className="btn btn-ghost btn-sm"
+              onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}
+            >
+              {t('mealsUi.thisWeek')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => void openWeekShoppingModal()}
               disabled={isOffline || !selectedList}
             >
-              {t('meals.generateWeekShopping')}
+              {t('mealsUi.generateList')}
             </button>
           </div>
         }
       />
 
-      <div className="planner-stack">
+      <div className="meals-board">
         {weekDays.map((day) => {
           const dateStr = format(day, 'yyyy-MM-dd');
+          const weekday = format(day, 'EEEE', { locale: dateLocale() });
           const dayItems = mealMap[dateStr] || [];
-          const totalMacros = dayItems.reduce(
-            (acc: any, item: any) => {
-              const servings = Number(item.servings) || 1;
-              acc.calories += (Number(item.calories_per_serving) || 0) * servings;
-              acc.protein += (Number(item.protein_per_serving) || 0) * servings;
-              acc.carbs += (Number(item.carbs_per_serving) || 0) * servings;
-              acc.fat += (Number(item.fat_per_serving) || 0) * servings;
-              return acc;
-            },
-            { calories: 0, protein: 0, carbs: 0, fat: 0 }
+          const isToday = isSameDay(day, new Date());
+          const totalKcal = dayItems.reduce(
+            (acc, item) => acc + (Number(item.calories_per_serving) || 0) * (Number(item.servings) || 1),
+            0
           );
 
+          const dayLabel = format(day, dateFormats.weekdayDayMonth(), { locale: dateLocale() });
+          const dayTitle = dayLabel.length ? dayLabel[0].toUpperCase() + dayLabel.slice(1) : dayLabel;
+
           return (
-            <CollapsiblePanel
-              key={dateStr}
-              id={`meal-day-${dateStr}`}
-              className={`planner-day ${isSameDay(day, new Date()) ? 'today' : ''}`}
-              title={format(day, "EEEE d 'de' MMMM", { locale: es })}
-              subtitle={dayItems.length ? `${dayItems.length} comidas planificadas` : 'Sin plan para este día'}
-              summary={<MealDaySummary dayItems={dayItems} totalMacros={totalMacros} isToday={isSameDay(day, new Date())} />}
-              open={openDay === dateStr}
-              onToggle={() => setOpenDay((current) => (current === dateStr ? null : dateStr))}
-            >
-              <div className="meal-slot-grid">
-                {MEAL_TYPES.map((type) => {
+            <section key={dateStr} aria-label={dayTitle} className={`meals-day${isToday ? ' is-today' : ''}`}>
+              <div className="meals-day-head">
+                <h2 className="meals-day-title">{dayTitle}</h2>
+                {isToday ? <span className="status-badge subtle">{t('mealsUi.today')}</span> : null}
+                {dayItems.length ? (
+                  <span className="meals-day-meta">
+                    {dayItems.length === 1 ? t('mealsUi.mealsCountOne', dayItems.length) : t('mealsUi.mealsCountMany', dayItems.length)}
+                    {totalKcal > 0 ? ` · ${Math.round(totalKcal)} kcal` : ''}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm meals-day-cart"
+                  aria-label={t('mealsUi.addDayToShopping', weekday)}
+                  onClick={() => {
+                    setShowShoppingModal({ date: dateStr, meal: '' });
+                    setIngredientText('');
+                  }}
+                >
+                  <Icon name="cart" size={16} />
+                  {t('mealsUi.toShopping')}
+                </button>
+              </div>
+
+              <div className="meals-slots">
+                {MEAL_TYPES.map((type: MealType) => {
                   const typeItems = dayItems.filter((item) => item.meal_type === type);
                   const isEditingHere = editingNew?.date === dateStr && editingNew?.type === type;
+                  const slotLabel = t(`meals.${type}`).toLowerCase();
 
                   return (
-                    <div key={type} className="meal-slot-card">
-                      <div className="meal-slot-card-header">
-                        <span>{t(`meals.${type}`)}</span>
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => startAddNew(dateStr, type)}>
-                          + Añadir
-                        </button>
-                      </div>
+                    <div key={type} className="meals-slot">
+                      <span className="meals-slot-name">{t(`meals.${type}`)}</span>
 
-                      {typeItems.length ? (
-                        <div className="meal-item-list">
-                          {typeItems.map((item) => {
-                            const textEditorActive = editingItem?.id === item.id && editingItem?.field === 'text';
-                            const servingsEditorActive = editingItem?.id === item.id && editingItem?.field === 'servings';
+                      {typeItems.map((item) => {
+                        const title = item.recipe_title || item.text_content || '';
+                        const textEditorActive = editingItem?.id === item.id && editingItem?.field === 'text';
+                        const servingsEditorActive = editingItem?.id === item.id && editingItem?.field === 'servings';
+                        const servings = Number(item.servings) || 1;
+                        const kcal = Math.round((Number(item.calories_per_serving) || 0) * servings);
+                        const protein = Math.round((Number(item.protein_per_serving) || 0) * servings);
 
-                            return (
-                              <div key={item.id} className="meal-item-row">
-                                <div className="meal-item-main">
-                                  {textEditorActive ? (
-                                    <input
-                                      autoFocus
-                                      className="input"
-                                      value={String(editingItem?.val ?? '')}
-                                      onChange={(e) =>
-                                        setEditingItem((current) => (current ? { ...current, val: e.target.value } : current))
-                                      }
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') void saveItemUpdate();
-                                        if (e.key === 'Escape') setEditingItem(null);
-                                      }}
-                                      onBlur={() => void saveItemUpdate()}
-                                    />
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      className="meal-item-title"
-                                      onClick={() =>
-                                        setEditingItem({
-                                          id: item.id,
-                                          field: 'text',
-                                          val: item.text_content || item.recipe_title || '',
-                                        })
-                                      }
-                                    >
-                                      {item.recipe_id ? '📖 ' : ''}
-                                      {item.recipe_title || item.text_content}
-                                    </button>
-                                  )}
-
-                                  <div className="meal-item-meta">
-                                    {servingsEditorActive ? (
-                                      <input
-                                        type="number"
-                                        autoFocus
-                                        className="input meal-servings-input"
-                                        value={Number(editingItem?.val ?? 1)}
-                                        onChange={(e) =>
-                                          setEditingItem((current) => (current ? { ...current, val: Number(e.target.value) } : current))
-                                        }
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') void saveItemUpdate();
-                                          if (e.key === 'Escape') setEditingItem(null);
-                                        }}
-                                        onBlur={() => void saveItemUpdate()}
-                                        step="0.1"
-                                        min="0.1"
-                                      />
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        className="subtle-link"
-                                        onClick={() =>
-                                          setEditingItem({
-                                            id: item.id,
-                                            field: 'servings',
-                                            val: Number(item.servings) || 1,
-                                          })
-                                        }
-                                      >
-                                        {Number(item.servings) || 1} porción{Number(item.servings) === 1 ? '' : 'es'}
-                                      </button>
-                                    )}
-
-                                    <div className="planner-macros">
-                                      {item.calories_per_serving > 0 ? (
-                                        <span className="macro-badge-sm calories">
-                                          {Math.round(item.calories_per_serving * (Number(item.servings) || 1))} kcal
-                                        </span>
-                                      ) : null}
-                                      {item.protein_per_serving > 0 ? (
-                                        <span className="macro-badge-sm protein">
-                                          {Math.round(item.protein_per_serving * (Number(item.servings) || 1))}g
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void deleteItem(item.id)}>
-                                  ✕
+                        return (
+                          <div key={item.id} className="meals-item">
+                            <div className="meals-item-main">
+                              {textEditorActive ? (
+                                <input
+                                  autoFocus
+                                  className="input"
+                                  value={String(editingItem?.val ?? '')}
+                                  onChange={(e) =>
+                                    setEditingItem((current) => (current ? { ...current, val: e.target.value } : current))
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') void saveItemUpdate();
+                                    if (e.key === 'Escape') setEditingItem(null);
+                                  }}
+                                  onBlur={() => void saveItemUpdate()}
+                                />
+                              ) : item.recipe_id ? (
+                                <button
+                                  type="button"
+                                  className="meals-item-link"
+                                  onClick={() => navigate(`/recipes/${item.recipe_id}`)}
+                                >
+                                  <Icon name="book" size={16} />
+                                  <span>{title}</span>
                                 </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="meals-item-text"
+                                  onClick={() =>
+                                    setEditingItem({ id: item.id, field: 'text', val: item.text_content || '' })
+                                  }
+                                >
+                                  {title}
+                                </button>
+                              )}
+
+                              <div className="meals-item-meta">
+                                {servingsEditorActive ? (
+                                  <input
+                                    type="number"
+                                    autoFocus
+                                    className="input meals-servings-input"
+                                    value={Number(editingItem?.val ?? 1)}
+                                    onChange={(e) =>
+                                      setEditingItem((current) => (current ? { ...current, val: Number(e.target.value) } : current))
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') void saveItemUpdate();
+                                      if (e.key === 'Escape') setEditingItem(null);
+                                    }}
+                                    onBlur={() => void saveItemUpdate()}
+                                    step="0.1"
+                                    min="0.1"
+                                  />
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="meals-servings"
+                                    onClick={() =>
+                                      setEditingItem({ id: item.id, field: 'servings', val: servings })
+                                    }
+                                  >
+                                    {servings === 1 ? t('mealsUi.servingsOne', servings) : t('mealsUi.servingsMany', servings)}
+                                  </button>
+                                )}
+                                {kcal > 0 ? <span>{kcal} kcal</span> : null}
+                                {protein > 0 ? <span>{t('mealsUi.protein', protein)}</span> : null}
                               </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="empty-state compact left">Sin comida definida todavía.</div>
-                      )}
+                            </div>
+
+                            <button
+                              type="button"
+                              className="icon-button meals-delete"
+                              aria-label={t('mealsUi.deleteMeal', title)}
+                              onClick={() => void deleteItem(item.id)}
+                            >
+                              <Icon name="trash" size={16} />
+                            </button>
+                          </div>
+                        );
+                      })}
 
                       {isEditingHere ? (
-                        <div className="meal-edit-container">
+                        <div className="meals-editor">
                           <input
                             className="input"
                             autoFocus
@@ -399,7 +435,7 @@ export default function Meals() {
                             }}
                           />
                           {editVal.trim().length > 0 ? (
-                            <div className="meal-suggestions">
+                            <div className="meals-suggestions">
                               {recipes
                                 .filter((recipe) => recipe.title.toLowerCase().includes(editVal.toLowerCase()))
                                 .slice(0, 5)
@@ -407,46 +443,42 @@ export default function Meals() {
                                   <button
                                     key={recipe.id}
                                     type="button"
-                                    className="suggestion-item"
+                                    className="meals-suggestion"
                                     onMouseDown={(e) => {
                                       e.preventDefault();
                                       void saveNewItem(recipe.id, recipe.title);
                                     }}
                                   >
-                                    <div className="suggestion-img">
-                                      {recipe.image_url ? <img src={recipe.image_url} alt="" /> : '📖'}
-                                    </div>
-                                    <div className="suggestion-info">
-                                      <span className="suggestion-title">{recipe.title}</span>
-                                      <div className="suggestion-meta">
-                                        {recipe.prep_time_minutes > 0 ? <span>{recipe.prep_time_minutes + (recipe.cook_time_minutes || 0)} min</span> : null}
-                                        {recipe.calories_per_serving > 0 ? <span>{Math.round(recipe.calories_per_serving)} kcal</span> : null}
-                                      </div>
-                                    </div>
+                                    <span className="meals-suggestion-title">{recipe.title}</span>
+                                    <span className="meals-suggestion-meta">
+                                      {(recipe.prep_time_minutes ?? 0) > 0 ? (
+                                        <span>{(recipe.prep_time_minutes ?? 0) + (recipe.cook_time_minutes ?? 0)} min</span>
+                                      ) : null}
+                                      {(recipe.calories_per_serving ?? 0) > 0 ? (
+                                        <span>{Math.round(recipe.calories_per_serving ?? 0)} kcal</span>
+                                      ) : null}
+                                    </span>
                                   </button>
                                 ))}
                             </div>
                           ) : null}
                         </div>
-                      ) : null}
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm meals-add"
+                          aria-label={t('mealsUi.addSlot', slotLabel, weekday)}
+                          onClick={() => startAddNew(dateStr, type)}
+                        >
+                          <Icon name="plus" size={16} />
+                          {t('common.add')}
+                        </button>
+                      )}
                     </div>
                   );
                 })}
               </div>
-
-              <div className="planner-day-footer">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    setShowShoppingModal({ date: dateStr, meal: '' });
-                    setIngredientText('');
-                  }}
-                >
-                  {t('recipes.addToShoppingList')}
-                </button>
-              </div>
-            </CollapsiblePanel>
+            </section>
           );
         })}
       </div>
@@ -457,7 +489,7 @@ export default function Meals() {
             <div className="modal-header">
               <span className="modal-title">{t('recipes.addToShoppingList')}</span>
               <button className="modal-close touch-target" onClick={() => setShowShoppingModal(null)} aria-label={t('common.close')}>
-                ×
+                <Icon name="close" size={18} />
               </button>
             </div>
             <div className="modal-body">
@@ -474,10 +506,10 @@ export default function Meals() {
                 </select>
               </div>
               <div className="form-group">
-                <label className="label">{t('recipes.ingredients')} (uno por línea)</label>
+                <label className="label">{t('mealsUi.ingredientsLabel')}</label>
                 <textarea
                   className="input"
-                  placeholder={'Pasta\nTomate\nQueso'}
+                  placeholder={t('mealsUi.ingredientsPlaceholder')}
                   value={ingredientText}
                   onChange={(e) => setIngredientText(e.target.value)}
                   style={{ minHeight: 120 }}
@@ -500,13 +532,13 @@ export default function Meals() {
         <div className="modal-overlay" onClick={() => setShowWeekShoppingModal(false)}>
           <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Vista previa de compra semanal</span>
+              <span className="modal-title">{t('mealsUi.weekPreviewTitle')}</span>
               <button className="modal-close touch-target" onClick={() => setShowWeekShoppingModal(false)} aria-label={t('common.close')}>
-                ×
+                <Icon name="close" size={18} />
               </button>
             </div>
             <div className="modal-body">
-              <p style={{ marginBottom: 16 }}>Revisa ingredientes, duplicados y fusiones antes de modificar la lista.</p>
+              <p className="meals-preview-intro">{t('mealsUi.weekPreviewIntro')}</p>
               <div className="form-group">
                 <label className="label" htmlFor="week-list-select">{t('meals.targetList')}</label>
                 <select
@@ -524,57 +556,56 @@ export default function Meals() {
               </div>
 
               {weekShoppingPreviewLoading ? (
-                <div className="empty-state compact">Calculando ingredientes y duplicados…</div>
+                <div className="empty-state compact">{t('mealsUi.weekPreviewLoading')}</div>
               ) : weekShoppingPreview ? (
                 <>
-                  <div className="stack-list compact" style={{ marginBottom: 16 }}>
-                    <div className="list-row"><span>Comidas con receta</span><strong>{weekShoppingPreview.recipeMealCount}</strong></div>
-                    <div className="list-row"><span>Comidas de texto omitidas</span><strong>{weekShoppingPreview.skippedTextMealsCount}</strong></div>
-                    <div className="list-row"><span>Ingredientes agrupados</span><strong>{weekShoppingPreview.items.length}</strong></div>
+                  <div className="meals-preview-summary">
+                    <div className="meals-preview-row"><span>{t('meals.weekRecipeCount')}</span><strong>{weekShoppingPreview.recipeMealCount}</strong></div>
+                    <div className="meals-preview-row"><span>{t('meals.weekSkippedTextMeals')}</span><strong>{weekShoppingPreview.skippedTextMealsCount}</strong></div>
+                    <div className="meals-preview-row"><span>{t('mealsUi.groupedIngredients')}</span><strong>{weekShoppingPreview.items.length}</strong></div>
                   </div>
-                  <div className="modal-stack">
+                  <div className="meals-preview-list">
                     {weekShoppingPreview.items.map((item) => {
                       const decision = weekShoppingDecisions[item.key] || { key: item.key, action: item.defaultAction, duplicateItemId: item.defaultDuplicateItemId };
                       return (
-                        <div key={item.key} className="list-row" style={{ alignItems: 'flex-start' }}>
-                          <div style={{ flex: 1 }}>
+                        <div key={item.key} className="meals-preview-item">
+                          <div className="meals-preview-copy">
                             <strong>{item.name}</strong>
                             <p>
-                              {item.quantity != null ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : 'Sin cantidad'}
-                              {' · '}{item.sources.length} origen{item.sources.length === 1 ? '' : 'es'}
+                              {item.quantity != null ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : t('mealsUi.noQuantity')}
+                              {' · '}{item.sources.length === 1 ? t('mealsUi.sourcesOne', item.sources.length) : t('mealsUi.sourcesMany', item.sources.length)}
                             </p>
-                            <p className="muted-inline">
+                            <p className="meals-preview-muted">
                               {item.sources.slice(0, 3).map((source) => `${source.recipeTitle} (${source.date})`).join(' · ')}
                             </p>
                             {item.candidates.length ? (
-                              <p className="muted-inline">Duplicado activo: {item.candidates[0].name}{item.candidates[0].quantity ? ` (${item.candidates[0].quantity}${item.candidates[0].unit ? ` ${item.candidates[0].unit}` : ''})` : ''}</p>
+                              <p className="meals-preview-muted">{t('mealsUi.activeDuplicate', `${item.candidates[0].name}${item.candidates[0].quantity ? ` (${item.candidates[0].quantity}${item.candidates[0].unit ? ` ${item.candidates[0].unit}` : ''})` : ''}`)}</p>
                             ) : null}
                           </div>
-                          <div className="surface-actions" style={{ minWidth: 180 }}>
-                            <select
-                              className="input"
-                              value={decision.action}
-                              onChange={(event) => setWeekDecision(item.key, { action: event.target.value as WeekShoppingDecision['action'] })}
-                            >
-                              <option value="add">Añadir</option>
-                              <option value="merge" disabled={!item.candidates.length}>Fusionar</option>
-                              <option value="skip">Omitir</option>
-                            </select>
-                          </div>
+                          <select
+                            className="input"
+                            aria-label={t('mealsUi.actionFor', item.name)}
+                            value={decision.action}
+                            onChange={(event) => setWeekDecision(item.key, { action: event.target.value as WeekShoppingDecision['action'] })}
+                          >
+                            <option value="add">{t('common.add')}</option>
+                            <option value="merge" disabled={!item.candidates.length}>{t('mealsUi.mergeAction')}</option>
+                            <option value="skip">{t('mealsUi.skipAction')}</option>
+                          </select>
                         </div>
                       );
                     })}
-                    {!weekShoppingPreview.items.length ? <div className="empty-state compact">No hay ingredientes de recetas en esta semana.</div> : null}
+                    {!weekShoppingPreview.items.length ? <div className="empty-state compact">{t('mealsUi.noWeekIngredients')}</div> : null}
                   </div>
                 </>
               ) : (
-                <button type="button" className="btn btn-secondary" onClick={() => void openWeekShoppingModal()}>Recalcular vista previa</button>
+                <button type="button" className="btn btn-secondary" onClick={() => void openWeekShoppingModal()}>{t('mealsUi.recalc')}</button>
               )}
             </div>
             <div className="modal-actions">
               <button className="btn btn-secondary" onClick={() => setShowWeekShoppingModal(false)}>{t('common.cancel')}</button>
               <button className="btn btn-primary" onClick={() => void generateWeekShopping()} disabled={!selectedList || isOffline || weekShoppingPreviewLoading || !weekShoppingPreview?.items.length}>
-                Confirmar cambios
+                {t('mealsUi.confirmChanges')}
               </button>
             </div>
           </div>
@@ -584,8 +615,7 @@ export default function Meals() {
       <StatusModal
         isOpen={!!weekShoppingResult}
         title={t('meals.generateWeekShoppingTitle')}
-        message={weekShoppingResult ? `${weekShoppingResult.addedCount} añadidos · ${weekShoppingResult.mergedCount} fusionados · ${weekShoppingResult.skippedCount} omitidos` : ''}
-        details={weekShoppingResult ? `${t('meals.weekSkippedTextMeals')}: ${weekShoppingResult.skippedTextMealsCount}` : null}
+        message={weekShoppingResult ? t('mealsUi.resultMessage', weekShoppingResult.addedCount, weekShoppingResult.mergedCount, weekShoppingResult.skippedCount) : ''}
         primaryText={t('meals.openShopping')}
         onPrimary={() => navigate('/shopping')}
         onClose={() => setWeekShoppingResult(null)}
@@ -599,41 +629,4 @@ export default function Meals() {
       />
     </div>
   );
-}
-
-function MealDaySummary({
-  dayItems,
-  totalMacros,
-  isToday,
-}: {
-  dayItems: any[];
-  totalMacros: { calories: number; protein: number; carbs: number; fat: number };
-  isToday: boolean;
-}) {
-  return (
-    <>
-      <span className={`compact-summary-pill ${dayItems.length ? '' : 'muted'}`}>{dayItems.length ? `${dayItems.length} comidas` : 'Sin plan'}</span>
-      {isToday ? <span className="compact-summary-pill accent">Hoy</span> : null}
-      <div className="planner-macros planner-macros-inline">
-        {totalMacros.calories > 0 ? <span className="macro-badge-sm calories">{Math.round(totalMacros.calories)} kcal</span> : null}
-        {totalMacros.protein > 0 ? <span className="macro-badge-sm protein">{Math.round(totalMacros.protein)}g P</span> : null}
-        {totalMacros.carbs > 0 ? <span className="macro-badge-sm carbs">{Math.round(totalMacros.carbs)}g C</span> : null}
-        {totalMacros.fat > 0 ? <span className="macro-badge-sm fat">{Math.round(totalMacros.fat)}g G</span> : null}
-      </div>
-    </>
-  );
-}
-
-function getPreferredOpenDay(weekDays: Date[], mealMap: Record<string, any[]>) {
-  const todayKey = format(new Date(), 'yyyy-MM-dd');
-  if (mealMap[todayKey] && weekDays.some((day) => format(day, 'yyyy-MM-dd') === todayKey)) {
-    return todayKey;
-  }
-
-  const firstWithMeals = weekDays.find((day) => {
-    const key = format(day, 'yyyy-MM-dd');
-    return (mealMap[key] || []).length > 0;
-  });
-
-  return format(firstWithMeals || weekDays[0], 'yyyy-MM-dd');
 }

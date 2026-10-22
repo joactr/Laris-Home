@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 import { t } from '../../i18n';
 import { toastError, toastSuccess } from '../../store/toast';
-import type { ImportedRecipe, RecipeDraft, RecipeIngredient } from '../../../../shared/contracts';
+import Icon from '../../components/Icon';
+import type { ImportedRecipe, RecipeIngredient } from '../../../../shared/contracts';
+import './Recipes.css';
 
 export default function RecipeImportPage() {
     const navigate = useNavigate();
@@ -19,11 +21,10 @@ export default function RecipeImportPage() {
         setError(null);
         try {
             const data = await api.recipes.importFromUrl(url);
-            setRecipe({ ...data, sourceUrl: url });
+            setRecipe(data);
         } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : 'Error al importar la receta';
+            const message = err instanceof Error ? err.message : t('rec.importError');
             setError(message);
-            toastError('No se pudo importar la receta', message);
         } finally {
             setLoading(false);
         }
@@ -31,208 +32,280 @@ export default function RecipeImportPage() {
 
     const handleSave = async () => {
         if (!recipe) return;
+        if (!recipe.title.trim()) {
+            setError(t('rec.importTitleRequired'));
+            return;
+        }
         setIsSaving(true);
         try {
-            await api.recipes.save(recipe);
-            toastSuccess('Receta creada', 'La receta se ha guardado correctamente.');
+            await api.recipes.save({
+                title: recipe.title,
+                description: recipe.description ?? '',
+                sourceUrl: recipe.sourceUrl ?? null,
+                imageUrl: recipe.imageUrl ?? null,
+                servings: recipe.servings ?? null,
+                prepTimeMinutes: recipe.prepTimeMinutes ?? null,
+                cookTimeMinutes: recipe.cookTimeMinutes ?? null,
+                caloriesPerServing: recipe.caloriesPerServing ?? null,
+                proteinPerServing: recipe.proteinPerServing ?? null,
+                carbsPerServing: recipe.carbsPerServing ?? null,
+                fatPerServing: recipe.fatPerServing ?? null,
+                ingredients: recipe.ingredients,
+                instructions: recipe.instructions,
+            });
+            toastSuccess(t('rec.createdTitle'), t('rec.createdBody'));
             navigate('/recipes');
         } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : 'Error al guardar la receta';
+            const message = err instanceof Error ? err.message : t('rec.saveError');
             setError(message);
-            toastError('No se pudo guardar la receta', message);
         } finally {
             setIsSaving(false);
         }
     };
 
+    const updateIngredient = (idx: number, patch: Partial<RecipeIngredient>) => {
+        if (!recipe) return;
+        const next = [...recipe.ingredients];
+        next[idx] = { ...next[idx], ...patch };
+        setRecipe({ ...recipe, ingredients: next });
+    };
+
     if (recipe) {
         return (
             <div className="page">
-                <div className="page-header">
-                    <div className="page-title">Revisar Receta Importada</div>
+                <div className="recipe-detail-top">
+                    <button className="icon-button" onClick={() => setRecipe(null)} aria-label={t('common.back')}>
+                        <Icon name="chevronLeft" size={20} />
+                    </button>
+                    <h1>{t('rec.reviewImported')}</h1>
                 </div>
 
-                <div className="card compact-form-card">
-                    <div className="form-group">
-                        <label className="label">Título</label>
-                        <input 
-                            className="input" 
-                            value={recipe.title} 
-                            onChange={e => setRecipe({...recipe, title: e.target.value})} 
-                        />
-                    </div>
-                    
-                    <div className="form-group">
-                        <label className="label">Descripción</label>
-                        <textarea 
-                            className="input" 
-                            value={recipe.description} 
-                            onChange={e => setRecipe({...recipe, description: e.target.value})}
-                        />
-                    </div>
+                <form className="recipes-form" onSubmit={(e) => { e.preventDefault(); void handleSave(); }}>
+                    {error ? <div className="recipes-form-error" role="alert">{error}</div> : null}
 
-                    <div className="form-group">
-                        <label className="label">URL de la Imagen (opcional)</label>
-                        <input
-                            className="input"
-                            type="url"
-                            placeholder="https://..."
-                            value={recipe.imageUrl || ''}
-                            onChange={e => setRecipe({ ...recipe, imageUrl: e.target.value })}
-                        />
-                        {recipe.imageUrl && (
-                            <div style={{ marginTop: 8 }}>
+                    <section className="recipes-form-section" aria-label={t('rec.basicData')}>
+                        <div className="form-group">
+                            <label className="label" htmlFor="import-title">{t('recipes.title')}</label>
+                            <input
+                                id="import-title"
+                                className="input"
+                                value={recipe.title}
+                                onChange={e => setRecipe({ ...recipe, title: e.target.value })}
+                                required
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label className="label" htmlFor="import-description">{t('recipes.description')}</label>
+                            <textarea
+                                id="import-description"
+                                className="input"
+                                value={recipe.description}
+                                onChange={e => setRecipe({ ...recipe, description: e.target.value })}
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label className="label" htmlFor="import-image">{t('rec.imageUrlOptional')}</label>
+                            <input
+                                id="import-image"
+                                className="input"
+                                type="url"
+                                placeholder="https://..."
+                                value={recipe.imageUrl || ''}
+                                onChange={e => setRecipe({ ...recipe, imageUrl: e.target.value })}
+                            />
+                            {recipe.imageUrl ? (
                                 <img
                                     src={recipe.imageUrl}
-                                    alt="Vista previa"
-                                    style={{ maxHeight: '150px', borderRadius: '8px', objectFit: 'cover' }}
+                                    alt={t('rec.previewAlt')}
+                                    className="recipes-preview"
                                     onError={(e) => (e.currentTarget.style.display = 'none')}
                                     onLoad={(e) => (e.currentTarget.style.display = 'block')}
                                 />
+                            ) : null}
+                        </div>
+                    </section>
+
+                    <section className="recipes-form-section" aria-label={t('rec.servingsTimes')}>
+                        <h2>{t('rec.servingsTimes')}</h2>
+                        <div className="field-grid three">
+                            <div className="form-group">
+                                <label className="label" htmlFor="import-servings">{t('recipes.servings')}</label>
+                                <input
+                                    id="import-servings"
+                                    type="number"
+                                    min={1}
+                                    className="input"
+                                    value={recipe.servings || ''}
+                                    onChange={e => setRecipe({ ...recipe, servings: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                                />
                             </div>
-                        )}
-                    </div>
+                            <div className="form-group">
+                                <label className="label" htmlFor="import-prep">{t('recipes.prepTime')}{t('rec.minSuffix')}</label>
+                                <input
+                                    id="import-prep"
+                                    type="number"
+                                    min={0}
+                                    className="input"
+                                    value={recipe.prepTimeMinutes || ''}
+                                    onChange={e => setRecipe({ ...recipe, prepTimeMinutes: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="label" htmlFor="import-cook">{t('recipes.cookTime')}{t('rec.minSuffix')}</label>
+                                <input
+                                    id="import-cook"
+                                    type="number"
+                                    min={0}
+                                    className="input"
+                                    value={recipe.cookTimeMinutes || ''}
+                                    onChange={e => setRecipe({ ...recipe, cookTimeMinutes: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                                />
+                            </div>
+                        </div>
+                    </section>
 
-                    <div className="field-grid three">
-                        <div className="form-group">
-                            <label className="label">{t('recipes.servings')}</label>
-                            <input 
-                                type="number" 
-                                className="input" 
-                                value={recipe.servings || ''} 
-                                onChange={e => setRecipe({...recipe, servings: parseInt(e.target.value)})}
-                            />
+                    <section className="recipes-form-section" aria-label={t('rec.nutritionPerServing')}>
+                        <h2>{t('rec.nutritionPerServing')}</h2>
+                        <div className="field-grid two">
+                            <div className="form-group">
+                                <label className="label" htmlFor="import-kcal">{t('recipes.calories')}</label>
+                                <input
+                                    id="import-kcal"
+                                    type="number"
+                                    min={0}
+                                    className="input"
+                                    value={recipe.caloriesPerServing || ''}
+                                    onChange={e => setRecipe({ ...recipe, caloriesPerServing: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="label" htmlFor="import-protein">{t('recipes.protein')}{t('rec.gramSuffix')}</label>
+                                <input
+                                    id="import-protein"
+                                    type="number"
+                                    min={0}
+                                    className="input"
+                                    value={recipe.proteinPerServing || ''}
+                                    onChange={e => setRecipe({ ...recipe, proteinPerServing: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="label" htmlFor="import-carbs">{t('recipes.carbs')}{t('rec.gramSuffix')}</label>
+                                <input
+                                    id="import-carbs"
+                                    type="number"
+                                    min={0}
+                                    className="input"
+                                    value={recipe.carbsPerServing || ''}
+                                    onChange={e => setRecipe({ ...recipe, carbsPerServing: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="label" htmlFor="import-fat">{t('recipes.fat')}{t('rec.gramSuffix')}</label>
+                                <input
+                                    id="import-fat"
+                                    type="number"
+                                    min={0}
+                                    className="input"
+                                    value={recipe.fatPerServing || ''}
+                                    onChange={e => setRecipe({ ...recipe, fatPerServing: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                                />
+                            </div>
                         </div>
-                        <div className="form-group">
-                            <label className="label">{t('recipes.prepTime')}</label>
-                            <input 
-                                type="number" 
-                                className="input" 
-                                value={recipe.prepTimeMinutes || ''} 
-                                onChange={e => setRecipe({...recipe, prepTimeMinutes: parseInt(e.target.value)})}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label className="label">{t('recipes.cookTime')}</label>
-                            <input 
-                                type="number" 
-                                className="input" 
-                                value={recipe.cookTimeMinutes || ''} 
-                                onChange={e => setRecipe({...recipe, cookTimeMinutes: parseInt(e.target.value)})}
-                            />
-                        </div>
-                    </div>
+                    </section>
 
-                    <div className="field-grid four form-group-stack">
-                        <div className="form-group">
-                            <label className="label">{t('recipes.calories')}</label>
-                            <input 
-                                type="number" 
-                                className="input" 
-                                value={recipe.caloriesPerServing || ''} 
-                                onChange={e => setRecipe({...recipe, caloriesPerServing: parseInt(e.target.value)})}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label className="label">{t('recipes.protein')}</label>
-                            <input 
-                                type="number" 
-                                className="input" 
-                                value={recipe.proteinPerServing || ''} 
-                                onChange={e => setRecipe({...recipe, proteinPerServing: parseInt(e.target.value)})}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label className="label">{t('recipes.carbs')}</label>
-                            <input 
-                                type="number" 
-                                className="input" 
-                                value={recipe.carbsPerServing || ''} 
-                                onChange={e => setRecipe({...recipe, carbsPerServing: parseInt(e.target.value)})}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label className="label">{t('recipes.fat')}</label>
-                            <input 
-                                type="number" 
-                                className="input" 
-                                value={recipe.fatPerServing || ''} 
-                                onChange={e => setRecipe({...recipe, fatPerServing: parseInt(e.target.value)})}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="form-group" style={{ marginTop: 16 }}>
-                        <label className="label">{t('recipes.ingredients')}</label>
-                        <div className="ingredient-edit-list">
+                    <section className="recipes-form-section" aria-label={t('recipes.ingredients')}>
+                        <h2>{t('recipes.ingredients')}</h2>
+                        <div className="recipes-ingredient-rows">
                             {recipe.ingredients.map((ing: RecipeIngredient, idx: number) => (
-                                <div key={idx} className="ingredient-edit-row">
-                                    <input 
-                                        className="input" 
+                                <div key={idx} className="recipes-ingredient-row">
+                                    <input
+                                        className="input"
                                         value={ing.name}
-                                        onChange={e => {
-                                            const newIngs = [...recipe.ingredients];
-                                            newIngs[idx].name = e.target.value;
-                                            setRecipe({...recipe, ingredients: newIngs});
-                                        }}
+                                        aria-label={t('rec.ingredientNameAria', idx + 1)}
+                                        onChange={e => updateIngredient(idx, { name: e.target.value })}
                                     />
-                                    <span className="ingredient-edit-meta">{ing.quantity} {ing.unit}</span>
+                                    <input
+                                        className="input"
+                                        type="number"
+                                        min={0}
+                                        value={ing.quantity ?? ''}
+                                        aria-label={t('rec.ingredientQtyAria', idx + 1)}
+                                        onChange={e => updateIngredient(idx, { quantity: e.target.value === '' ? null : Number(e.target.value) })}
+                                    />
+                                    <input
+                                        className="input"
+                                        value={ing.unit ?? ''}
+                                        aria-label={t('rec.ingredientUnitAria', idx + 1)}
+                                        onChange={e => updateIngredient(idx, { unit: e.target.value })}
+                                    />
+                                    <span className="recipe-row-meta" aria-hidden="true">{ing.quantity ?? ''} {ing.unit ?? ''}</span>
                                 </div>
                             ))}
                         </div>
-                    </div>
+                    </section>
 
-                    <div className="form-group">
-                        <label className="label">{t('recipes.instructions')} (una por línea)</label>
-                        <textarea 
-                            className="input" 
-                            style={{ minHeight: 200 }}
-                            value={recipe.instructions.join('\n')} 
-                            onChange={e => setRecipe({...recipe, instructions: e.target.value.split('\n')})}
-                        />
-                    </div>
+                    <section className="recipes-form-section" aria-label={t('recipes.instructions')}>
+                        <div className="form-group">
+                            <label className="label" htmlFor="import-steps">{t('rec.instructionsOnePerLine', t('recipes.instructions'))}</label>
+                            <textarea
+                                id="import-steps"
+                                className="input"
+                                style={{ minHeight: 200 }}
+                                value={recipe.instructions.join('\n')}
+                                onChange={e => setRecipe({ ...recipe, instructions: e.target.value.split('\n') })}
+                            />
+                        </div>
+                    </section>
 
-                    <div className="modal-actions">
-                        <button className="btn btn-secondary" onClick={() => setRecipe(null)}>{t('common.cancel')}</button>
-                        <button className="btn btn-primary" onClick={handleSave} disabled={isSaving}>
+                    <div className="recipes-form-actions">
+                        <button type="button" className="btn btn-secondary" onClick={() => setRecipe(null)}>{t('common.cancel')}</button>
+                        <button type="submit" className="btn btn-primary" disabled={isSaving}>
                             {isSaving ? t('common.loading') : t('common.save')}
                         </button>
                     </div>
-                </div>
+                </form>
             </div>
         );
     }
 
     return (
         <div className="page">
-            <div className="page-header">
-                <div>
-                    <div className="page-title">{t('recipes.importUrl')}</div>
-                    <div className="page-subtitle">Pega una URL para extraer los detalles automáticamente</div>
-                </div>
+            <div className="recipe-detail-top">
+                <button className="icon-button" onClick={() => navigate('/recipes')} aria-label={t('common.back')}>
+                    <Icon name="chevronLeft" size={20} />
+                </button>
+                <h1>{t('recipes.importUrl')}</h1>
             </div>
+            <p className="recipe-detail-meta">{t('rec.importHint')}</p>
 
-            <div className="card compact-form-card compact-form-card-narrow">
+            <form className="recipes-form" onSubmit={(e) => { e.preventDefault(); void handleImport(); }}>
                 <div className="form-group">
-                    <label className="label" htmlFor="recipe-import-url">URL de la Receta</label>
-                    <input 
+                    <label className="label" htmlFor="recipe-import-url">{t('rec.recipeUrlLabel')}</label>
+                    <input
                         id="recipe-import-url"
-                        className="input" 
-                        placeholder="https://ejemplo.com/receta-de-pollo"
+                        className="input"
+                        type="url"
+                        placeholder={t('rec.recipeUrlPh')}
                         value={url}
                         onChange={e => setUrl(e.target.value)}
+                        required
                     />
                 </div>
-                {error && <div style={{ color: 'red', marginBottom: 16 }}>{error}</div>}
-                <button 
-                    className="btn btn-primary" 
-                    style={{ width: '100%' }}
-                    onClick={handleImport}
-                    disabled={loading || !url}
-                >
-                    {loading ? t('common.loading') : t('recipes.importBtn')}
-                </button>
-            </div>
+                {error ? <div className="recipes-form-error" role="alert">{error}</div> : null}
+                <div className="recipes-form-actions">
+                    <button type="button" className="btn btn-secondary" onClick={() => navigate('/recipes')}>{t('common.cancel')}</button>
+                    <button
+                        type="submit"
+                        className="btn btn-primary"
+                        disabled={loading || !url}
+                    >
+                        {loading ? t('common.loading') : t('recipes.importBtn')}
+                    </button>
+                </div>
+            </form>
         </div>
     );
 }

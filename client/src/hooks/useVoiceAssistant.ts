@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { api, ApiClientError } from '../api';
+import { t } from '../i18n';
 
 interface VoiceAssistantState {
   isListening: boolean;
@@ -37,7 +38,7 @@ export function useVoiceAssistant() {
   const processRecording = useCallback(async (chunks: BlobPart[], mimeType: string) => {
     const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
     if (!blob.size) {
-      setState((prev) => ({ ...prev, isProcessing: false, error: 'No se detecto audio en la grabacion.' }));
+      setState((prev) => ({ ...prev, isProcessing: false, error: t('shell.noAudio') }));
       return;
     }
 
@@ -50,7 +51,7 @@ export function useVoiceAssistant() {
         isProcessing: false,
       }));
     } catch (error) {
-      const message = error instanceof ApiClientError ? error.message : 'No se pudo transcribir el audio.';
+      const message = error instanceof ApiClientError ? error.message : t('shell.transcribeFailed');
       setState((prev) => ({ ...prev, isProcessing: false, error: message, transcript: '', pendingTranscript: '' }));
     }
   }, []);
@@ -94,8 +95,8 @@ export function useVoiceAssistant() {
       setState({ isListening: true, transcript: '', pendingTranscript: '', isProcessing: false, error: null });
     } catch (error: any) {
       const message = error?.name === 'NotAllowedError' || error?.name === 'NotFoundError'
-        ? 'Activa el microfono en tu navegador'
-        : error?.message || 'Error al iniciar la grabacion';
+        ? t('shell.voiceMicOn')
+        : error?.message || t('shell.voiceStartError');
       stopTracks();
       cleanupRecorder();
       setState((prev) => ({ ...prev, error: message, isListening: false }));
@@ -122,7 +123,7 @@ export function useVoiceAssistant() {
       await Promise.resolve(onFinalTranscriptRef.current?.(cleaned));
       setState((prev) => ({ ...prev, isProcessing: false, pendingTranscript: '', transcript: '' }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo procesar la transcripcion.';
+      const message = error instanceof Error ? error.message : t('shell.processTranscriptFailed');
       setState((prev) => ({ ...prev, isProcessing: false, error: message }));
     }
   }, []);

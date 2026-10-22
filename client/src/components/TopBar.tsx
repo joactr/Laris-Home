@@ -1,31 +1,29 @@
-import { useNavigate } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import { useAuthStore } from '../store/auth';
 
 type TopBarProps = {
   title: string;
+  /** Slot para acciones de página (p. ej. el botón de voz). */
+  actions?: ReactNode;
 };
 
-export default function TopBar({ title }: TopBarProps) {
-  const navigate = useNavigate();
+export default function TopBar({ title, actions }: TopBarProps) {
   const user = useAuthStore((s) => s.user);
 
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <div>
-          <div className="topbar-kicker">Laris Home</div>
-          <h1 className="topbar-title">{title}</h1>
-        </div>
+        <div className="topbar-title">{title}</div>
       </div>
 
       <div className="topbar-right">
-        {user?.is_admin ? (
-          <button type="button" className="topbar-chip" onClick={() => navigate('/admin')}>
-            Admin
-          </button>
-        ) : null}
-        <div className="topbar-avatar" title={user?.username}>
-          {user?.username?.slice(0, 2).toUpperCase()}
+        {actions}
+        <div
+          className="topbar-avatar"
+          style={user?.color ? { background: user.color } : undefined}
+          title={user?.name || user?.username}
+        >
+          {(user?.name || user?.username || '?').slice(0, 2).toUpperCase()}
         </div>
       </div>
     </header>

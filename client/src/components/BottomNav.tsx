@@ -4,6 +4,19 @@ import { APP_NAV_ITEMS } from './navigation';
 import { t } from '../i18n';
 import { useAuthStore } from '../store/auth';
 import { requestPwaRefresh, usePwaStore } from '../store/pwa';
+import LanguageSwitch from './LanguageSwitch';
+
+function shortKeyFor(path: string): string {
+  switch (path) {
+    case '/': return 'shell.short.home';
+    case '/shopping': return 'shell.short.shopping';
+    case '/calendar': return 'shell.short.calendar';
+    case '/meals': return 'shell.short.meals';
+    case '/recipes': return 'shell.short.recipes';
+    case '/projects': return 'shell.short.projects';
+    default: return 'shell.short.home';
+  }
+}
 
 const PRIMARY_MOBILE_ITEMS = APP_NAV_ITEMS.slice(0, 4);
 const SECONDARY_ITEMS = APP_NAV_ITEMS.slice(4);
@@ -35,7 +48,7 @@ export default function BottomNav() {
     <>
       {isMoreOpen ? <div className="bottom-sheet-backdrop" onClick={() => setIsMoreOpen(false)} /> : null}
 
-      <nav className="bottom-nav mobile-only" aria-label="Navegación principal">
+      <nav className="bottom-nav mobile-only" aria-label={t('shell.mainNav')}>
         {PRIMARY_MOBILE_ITEMS.map((item) => {
           const active = isActivePath(location.pathname, item.path);
           return (
@@ -48,7 +61,7 @@ export default function BottomNav() {
               title={t(item.label)}
             >
               {item.icon}
-              <span>{item.shortLabel}</span>
+              <span>{t(shortKeyFor(item.path))}</span>
             </button>
           );
         })}
@@ -63,7 +76,7 @@ export default function BottomNav() {
             <circle cx="12" cy="12" r="1.4" />
             <circle cx="19" cy="12" r="1.4" />
           </svg>
-          <span>Más</span>
+          <span>{t('shell.more')}</span>
         </button>
       </nav>
 
@@ -95,12 +108,13 @@ export default function BottomNav() {
               }}
             >
               <span className="menu-tile-icon">⚙</span>
-              <span>Admin</span>
+              <span>{t('shell.adminShort')}</span>
             </button>
           ) : null}
         </div>
 
         <div className="bottom-sheet-footer">
+          <LanguageSwitch />
           <button
             type="button"
             className={`menu-tile menu-tile-update ${updateAvailable ? 'active' : ''}`}
@@ -110,7 +124,7 @@ export default function BottomNav() {
             }}
           >
             <span className="menu-tile-icon">{updateAvailable ? '↻' : '⟳'}</span>
-            <span>{updateAvailable ? 'Actualizar app' : 'Recargar app'}</span>
+            <span>{updateAvailable ? t('shell.updateApp') : t('shell.reloadApp')}</span>
           </button>
 
           <button
