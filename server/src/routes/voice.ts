@@ -1,28 +1,31 @@
-import { raw, Router, Response } from 'express';
+import { raw, Response } from 'express';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { transcriptSchema } from '../contracts/voice';
 import { sendError, type ApiErrorCode } from '../lib/api-error';
+import { requireHousehold } from '../lib/household';
 import { createRateLimiter } from '../lib/rate-limit';
+import { createSafeRouter } from '../lib/router';
 import pool from '../db/pool';
 import { OpenRouterService } from '../services/openrouter.service';
 import { EmbeddingService } from '../services/embedding.service';
 import { SpeechService } from '../services/speech.service';
 
-const router = Router();
+const router = createSafeRouter();
 router.use(authMiddleware);
+router.use(requireHousehold);
 
 const transcribeRateLimiter = createRateLimiter({
   keyPrefix: 'voice-transcribe',
   windowMs: 60_000,
   max: 10,
-  message: 'Has alcanzado el limite temporal de transcripciones. Intentalo de nuevo en un minuto.',
+  message: 'You have reached the temporary transcription limit. Try again in a minute.',
 });
 
 const voiceCommandRateLimiter = createRateLimiter({
   keyPrefix: 'voice-command',
   windowMs: 60_000,
   max: 20,
-  message: 'Has alcanzado el limite temporal de solicitudes de voz. Intentalo de nuevo en un minuto.',
+  message: 'You have reached the temporary voice request limit. Try again in a minute.',
 });
 
 const ALLOWED_AUDIO_MIME_TYPES = new Set([
@@ -40,7 +43,7 @@ const ALLOWED_AUDIO_MIME_TYPES = new Set([
 router.get('/config', (_req: AuthRequest, res: Response) => {
   res.json({
     providerConfigured: SpeechService.isConfigured(),
-    language: process.env.DEEPGRAM_LANGUAGE || 'es',
+    language: process.env.DEEPGRAM_LANGUAGE || 'en',
   });
 });
 
@@ -48,7 +51,7 @@ router.post('/transcribe', transcribeRateLimiter, raw({ type: '*/*', limit: '12m
   try {
     const mimeType = String(req.headers['content-type'] || 'audio/webm').toLowerCase();
     if (!ALLOWED_AUDIO_MIME_TYPES.has(mimeType)) {
-      sendError(res, 400, 'BAD_REQUEST', 'El formato de audio no es compatible.');
+      sendError(res, 400, 'BAD_REQUEST', 'Unsupported audio format.');
       return;
     }
 
@@ -58,7 +61,7 @@ router.post('/transcribe', transcribeRateLimiter, raw({ type: '*/*', limit: '12m
   } catch (error: any) {
     const status = typeof error?.status === 'number' ? error.status : 500;
     const code = (error?.code || 'INTERNAL_ERROR') as ApiErrorCode;
-    sendError(res, status, code, error?.message || 'No se pudo transcribir el audio.');
+    sendError(res, status, code, error?.message || 'Could not transcribe the audio.');
   }
 });
 
@@ -85,7 +88,7 @@ function classifyVoiceError(err: unknown) {
     return {
       code: 'PROVIDER_UNAVAILABLE' as const,
       retryable: false,
-      message: 'La funcion de voz no esta configurada ahora mismo.',
+      message: 'Voice is not configured right now.',
     };
   }
 
@@ -93,7 +96,7 @@ function classifyVoiceError(err: unknown) {
     return {
       code: 'PROVIDER_UNAVAILABLE' as const,
       retryable: true,
-      message: 'No he podido contactar con el proveedor de IA. Puedes reintentarlo en un momento.',
+      message: 'I could not reach the AI provider. Please try again in a moment.',
     };
   }
 
@@ -101,21 +104,21 @@ function classifyVoiceError(err: unknown) {
     return {
       code: 'INVALID_RESPONSE' as const,
       retryable: true,
-      message: 'La respuesta de IA no fue lo bastante clara. Intentalo de nuevo o usa la opcion manual.',
+      message: 'The AI response was not clear enough. Try again or use the manual option.',
     };
   }
 
   return {
     code: 'PROCESSING_FAILED' as const,
     retryable: true,
-    message: 'No he podido procesar la solicitud de voz. Intentalo de nuevo o usa la opcion manual.',
+    message: 'I could not process the voice request. Try again or use the manual option.',
   };
 }
 
 router.post('/shopping', voiceCommandRateLimiter, async (req: AuthRequest, res: Response) => {
   const parsed = transcriptSchema.safeParse(req.body);
   if (!parsed.success) {
-    sendError(res, 400, 'VALIDATION_ERROR', 'La transcripcion es obligatoria.', parsed.error.flatten());
+    sendError(res, 400, 'VALIDATION_ERROR', 'A transcript is required.', parsed.error.flatten());
     return;
   }
 
@@ -134,7 +137,7 @@ router.post('/shopping', voiceCommandRateLimiter, async (req: AuthRequest, res: 
         code: 'no_items',
         retryable: false,
         transcript: parsed.data.transcript,
-        message: 'No he detectado articulos claros en tu peticion. Puedes reintentarlo o anadirlos manualmente.',
+        message: 'I did not detect clear items in your request. Please try again or add them manually.',
         items: [],
       });
       return;
@@ -145,7 +148,7 @@ router.post('/shopping', voiceCommandRateLimiter, async (req: AuthRequest, res: 
       code: 'review_required',
       retryable: true,
       transcript: parsed.data.transcript,
-      message: result.message || 'He detectado estos articulos. Revisalos antes de anadirlos.',
+      message: result.message || 'I detected these items. Review them before adding.',
       items,
     });
   } catch (err) {
@@ -161,14 +164,14 @@ router.post('/shopping', voiceCommandRateLimiter, async (req: AuthRequest, res: 
 router.post('/recipes', voiceCommandRateLimiter, async (req: AuthRequest, res: Response) => {
   const parsed = transcriptSchema.safeParse(req.body);
   if (!parsed.success) {
-    sendError(res, 400, 'VALIDATION_ERROR', 'La transcripcion es obligatoria.', parsed.error.flatten());
+    sendError(res, 400, 'VALIDATION_ERROR', 'A transcript is required.', parsed.error.flatten());
     return;
   }
 
   try {
     const householdId = req.user?.householdId;
     if (!householdId) {
-      sendError(res, 400, 'BAD_REQUEST', 'Falta el household del usuario.');
+      sendError(res, 400, 'BAD_REQUEST', 'Missing user household.');
       return;
     }
 
@@ -222,7 +225,7 @@ router.post('/recipes', voiceCommandRateLimiter, async (req: AuthRequest, res: R
         code: 'no_matches',
         retryable: false,
         transcript: parsed.data.transcript,
-        message: 'No he encontrado recetas utiles con esa peticion. Puedes probar con otros ingredientes o usar la busqueda manual.',
+        message: 'I found no useful recipes for that request. Try other ingredients or use manual search.',
         recipes: [],
       });
       return;
@@ -233,7 +236,7 @@ router.post('/recipes', voiceCommandRateLimiter, async (req: AuthRequest, res: R
       code: 'review_required',
       retryable: true,
       transcript: parsed.data.transcript,
-      message: result.message || 'He preparado algunas opciones para que las revises.',
+      message: result.message || 'I prepared some options for you to review.',
       recipes: result.recipes,
     });
   } catch (err) {
@@ -249,7 +252,7 @@ router.post('/recipes', voiceCommandRateLimiter, async (req: AuthRequest, res: R
 router.post('/recipe-command', voiceCommandRateLimiter, async (req: AuthRequest, res: Response) => {
   const parsed = transcriptSchema.safeParse(req.body);
   if (!parsed.success) {
-    sendError(res, 400, 'VALIDATION_ERROR', 'La transcripcion es obligatoria.', parsed.error.flatten());
+    sendError(res, 400, 'VALIDATION_ERROR', 'A transcript is required.', parsed.error.flatten());
     return;
   }
 
@@ -257,7 +260,7 @@ router.post('/recipe-command', voiceCommandRateLimiter, async (req: AuthRequest,
   const householdId = req.user?.householdId;
 
   if (!householdId) {
-    sendError(res, 401, 'UNAUTHORIZED', 'No autorizado.');
+    sendError(res, 401, 'UNAUTHORIZED', 'Unauthorized.');
     return;
   }
 
@@ -277,7 +280,7 @@ router.post('/recipe-command', voiceCommandRateLimiter, async (req: AuthRequest,
     );
 
     if (!recipeRows.length) {
-      sendError(res, 404, 'NOT_FOUND', 'Receta no encontrada.');
+      sendError(res, 404, 'NOT_FOUND', 'Recipe not found.');
       return;
     }
 

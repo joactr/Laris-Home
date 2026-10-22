@@ -1,13 +1,24 @@
-FROM node:20-slim
+FROM node:20-slim AS deps
 WORKDIR /app
-RUN apt-get update && apt-get install -y \
-    python3 \
-    make \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY package*.json ./
-RUN npm install
+RUN npm ci
+
+FROM deps AS development
 COPY . .
 EXPOSE 4000
 CMD ["npm", "run", "dev"]
+
+FROM deps AS build
+COPY . .
+RUN npm run build
+
+FROM node:20-slim AS production
+ENV NODE_ENV=production
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/src/db/migrations ./dist/db/migrations
+USER node
+EXPOSE 4000
+CMD ["node", "dist/index.js"]

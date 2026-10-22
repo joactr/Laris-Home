@@ -1,13 +1,25 @@
 import { createHash } from 'crypto';
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import pool from '../db/pool';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { toDateString } from '../lib/dates';
+import { requireHousehold } from '../lib/household';
+import { createSafeRouter } from '../lib/router';
 import { DailySummaryInput, OpenRouterService } from '../services/openrouter.service';
 
-const router = Router();
+const router = createSafeRouter();
 router.use(authMiddleware);
+router.use(requireHousehold);
 
 const DASHBOARD_CACHE_TTL_MS = Number(process.env.DASHBOARD_CACHE_TTL_MS || '30000');
+const MAX_SUMMARY_CACHE_ENTRIES = 200;
+
+function pruneSummaryCache() {
+  for (const key of summaryCache.keys()) {
+    if (summaryCache.size <= MAX_SUMMARY_CACHE_ENTRIES) break;
+    summaryCache.delete(key);
+  }
+}
 
 type DashboardSummaryResponse = {
   text: string;
@@ -77,7 +89,7 @@ router.get('/summary', async (req: AuthRequest, res: Response) => {
 });
 
 async function getDashboardSnapshot(householdId: string): Promise<DashboardSnapshot> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = toDateString(new Date());
   const cacheKey = `${householdId}:${today}`;
   const now = Date.now();
   const cached = dashboardSnapshotCache.get(cacheKey);
@@ -102,10 +114,10 @@ async function getDashboardSnapshot(householdId: string): Promise<DashboardSnaps
 
 async function buildDashboardSnapshot(householdId: string, todayStr: string): Promise<DashboardSnapshot> {
   const today = new Date(`${todayStr}T12:00:00`);
-  const todayLabel = today.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+  const todayLabel = today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const upcomingEnd = new Date(today);
   upcomingEnd.setDate(upcomingEnd.getDate() + 3);
-  const upcomingEndStr = upcomingEnd.toISOString().split('T')[0];
+  const upcomingEndStr = toDateString(upcomingEnd);
 
   const [
     events,
@@ -196,7 +208,7 @@ async function buildDashboardSnapshot(householdId: string, todayStr: string): Pr
       id: `task-${task.id}`,
       type: 'project',
       title: task.title,
-      hint: `Atrasada en ${task.project_name}`,
+      hint: `Overdue in ${task.project_name}`,
       path: '/projects',
       tone: 'warning',
     })),
@@ -204,7 +216,7 @@ async function buildDashboardSnapshot(householdId: string, todayStr: string): Pr
       id: `chore-${chore.id}`,
       type: 'chore',
       title: chore.title,
-      hint: chore.assigned_name ? `Pendiente · ${chore.assigned_name}` : 'Pendiente hoy',
+      hint: chore.assigned_name ? `Pending · ${chore.assigned_name}` : 'Pending today',
       path: '/calendar',
       tone: 'info',
     })),
@@ -215,14 +227,14 @@ async function buildDashboardSnapshot(householdId: string, todayStr: string): Pr
       id: `event-${event.start_datetime}-${event.title}`,
       type: 'event',
       title: event.title,
-      detail: new Date(event.start_datetime).toLocaleString('es-ES', { weekday: 'short', hour: '2-digit', minute: '2-digit' }),
+      detail: new Date(event.start_datetime).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' }),
       path: '/calendar',
     })),
     ...recentShopping.rows.map((item) => ({
       id: `shopping-${item.created_at}-${item.name}`,
       type: 'shopping',
       title: item.name,
-      detail: `Pendiente en ${item.list_name}`,
+      detail: `Pending in ${item.list_name}`,
       path: '/shopping',
     })),
   ].slice(0, 8);
@@ -231,7 +243,7 @@ async function buildDashboardSnapshot(householdId: string, todayStr: string): Pr
     dateLabel: todayLabel,
     events: events.rows.map((event) => ({
       title: event.title,
-      time: new Date(event.start_datetime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+      time: new Date(event.start_datetime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
       assignedTo: event.assigned_name,
     })),
     chores: chores.rows.map((chore) => ({
@@ -305,6 +317,7 @@ function ensureSummaryGeneration(householdId: string, today: string, input: Dail
     status: 'pending',
     generatedAt: null,
   });
+  pruneSummaryCache();
   void generateSummaryInBackground(key, signature, input);
 
   return null;
@@ -365,6 +378,7 @@ async function generateSummaryInBackground(cacheKey: string, signature: string, 
       status: 'ready',
       generatedAt: Date.now(),
     });
+    pruneSummaryCache();
   } catch (error) {
     console.error('Dashboard summary generation failed:', error);
     const current = summaryCache.get(cacheKey);
@@ -388,8 +402,8 @@ function buildFallbackSummary(input: DailySummaryInput) {
     const eventPreview = input.events
       .slice(0, 2)
       .map((event) => `${event.time} ${event.title}`)
-      .join(' y ');
-    fragments.push(`Hoy tienes ${input.events.length} evento${input.events.length === 1 ? '' : 's'}: ${eventPreview}`);
+      .join(' and ');
+    fragments.push(`Today you have ${input.events.length} event${input.events.length === 1 ? '' : 's'}: ${eventPreview}`);
   }
 
   const pendingChores = input.chores.filter((chore) => chore.status !== 'done');
@@ -397,16 +411,16 @@ function buildFallbackSummary(input: DailySummaryInput) {
     const chorePreview = pendingChores
       .slice(0, 2)
       .map((chore) => chore.title)
-      .join(' y ');
-    fragments.push(`siguen pendientes ${chorePreview}`);
+      .join(' and ');
+    fragments.push(`still pending: ${chorePreview}`);
   }
 
   if (input.mealDetails.length) {
     const mealsPreview = input.mealDetails
       .slice(0, 2)
       .map((meal) => `${meal.mealType.toLowerCase()} ${meal.value}`)
-      .join(' y ');
-    fragments.push(`ya tienes previsto ${mealsPreview}`);
+      .join(' and ');
+    fragments.push(`already planned: ${mealsPreview}`);
   }
 
   if (input.shoppingPendingCount) {
@@ -416,8 +430,8 @@ function buildFallbackSummary(input: DailySummaryInput) {
       .join(', ');
     fragments.push(
       shoppingPreview
-        ? `quedan ${input.shoppingPendingCount} artículos por comprar, entre ellos ${shoppingPreview}`
-        : `quedan ${input.shoppingPendingCount} artículos por comprar`
+        ? `${input.shoppingPendingCount} item${input.shoppingPendingCount === 1 ? '' : 's'} left to buy, including ${shoppingPreview}`
+        : `${input.shoppingPendingCount} item${input.shoppingPendingCount === 1 ? '' : 's'} left to buy`
     );
   }
 
@@ -425,26 +439,26 @@ function buildFallbackSummary(input: DailySummaryInput) {
     const overduePreview = input.overdueTasks
       .slice(0, 2)
       .map((task) => `${task.title} (${task.project})`)
-      .join(' y ');
-    fragments.push(`hay tareas atrasadas como ${overduePreview}`);
+      .join(' and ');
+    fragments.push(`there are overdue tasks such as ${overduePreview}`);
   }
 
   if (!fragments.length) {
-    return 'Hoy está bastante despejado. Puedes aprovechar para planificar comidas, revisar la compra o adelantar alguna tarea de casa.';
+    return 'Today is fairly clear. You can use it to plan meals, review the shopping list, or get ahead on house tasks.';
   }
 
   const [first, ...rest] = fragments;
-  return `${capitalize(first)}${rest.length ? `; además ${rest.join('. ')}` : ''}.`;
+  return `${capitalize(first)}${rest.length ? `; also ${rest.join('. ')}` : ''}.`;
 }
 
 function translateMealType(value: string) {
   switch (value) {
     case 'breakfast':
-      return 'Desayuno';
+      return 'Breakfast';
     case 'lunch':
-      return 'Comida';
+      return 'Lunch';
     case 'dinner':
-      return 'Cena';
+      return 'Dinner';
     case 'snack':
       return 'Snack';
     default:

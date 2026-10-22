@@ -3,7 +3,8 @@ node_modules/
 .pnp
 .pnp.js
 
-# Testing
+test-results/
+playwright-report/
 coverage/
 
 # Production
@@ -56,6 +57,7 @@ yarn-error.log*
 *.db
 backups/postgres/
 !backups/postgres/.gitkeep
+client/test-results/
 
 # Local Codex workspace state
 .codex

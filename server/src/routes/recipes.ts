@@ -1,20 +1,34 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { sendError } from '../lib/api-error';
+import { requireHousehold } from '../lib/household';
 import { createRateLimiter } from '../lib/rate-limit';
+import { createSafeRouter } from '../lib/router';
+import { UnsafeUrlError } from '../lib/safe-fetch';
 import { RecipeService } from '../services/recipe.service';
 import { EmbeddingService } from '../services/embedding.service';
 
-const router = Router();
+const router = createSafeRouter();
 router.use(authMiddleware);
+router.use(requireHousehold);
+
+const UuidSchema = z.string().uuid();
+
+router.param('id', (req, res, next, id) => {
+  if (UuidSchema.safeParse(id).success) {
+    next();
+    return;
+  }
+  sendError(res, 404, 'NOT_FOUND', 'Recipe not found.');
+});
 
 const importRateLimiter = createRateLimiter({
   keyPrefix: 'recipes-import',
   windowMs: 60_000,
   max: 6,
-  message: 'Has alcanzado el limite temporal de importaciones de recetas. Intentalo de nuevo en un minuto.',
+  message: 'You have reached the temporary recipe import limit. Try again in a minute.',
 });
 
 const ImportSchema = z.object({
@@ -85,7 +99,7 @@ async function getRecipeIngredients(recipeId: string) {
 router.post('/import-from-url', importRateLimiter, async (req: AuthRequest, res: Response) => {
   const parsed = ImportSchema.safeParse(req.body);
   if (!parsed.success) {
-    sendError(res, 400, 'VALIDATION_ERROR', 'La URL de la receta no es valida.', parsed.error.flatten());
+    sendError(res, 400, 'VALIDATION_ERROR', 'The recipe URL is not valid.', parsed.error.flatten());
     return;
   }
 
@@ -93,68 +107,80 @@ router.post('/import-from-url', importRateLimiter, async (req: AuthRequest, res:
     const recipe = await RecipeService.fetchAndParse(parsed.data.url);
     res.json(recipe);
   } catch (error) {
-    sendError(res, 500, 'PROCESSING_FAILED', 'No se pudo importar la receta. Verifica la URL e intentalo de nuevo.');
+    if (error instanceof UnsafeUrlError) {
+      sendError(res, 400, 'VALIDATION_ERROR', error.message);
+      return;
+    }
+    console.error('Recipe import failed:', error);
+    sendError(res, 500, 'PROCESSING_FAILED', 'Could not import the recipe. Check the URL and try again.');
   }
 });
 
 router.post('/create-enriched', async (req: AuthRequest, res: Response) => {
   const parsed = CreateEnrichedSchema.safeParse(req.body);
   if (!parsed.success) {
-    sendError(res, 400, 'VALIDATION_ERROR', 'La receta enriquecida no es valida.', parsed.error.flatten());
+    sendError(res, 400, 'VALIDATION_ERROR', 'The enriched recipe is not valid.', parsed.error.flatten());
     return;
   }
 
   try {
     const householdId = req.user?.householdId;
     if (!householdId) {
-      sendError(res, 400, 'BAD_REQUEST', 'Falta el household del usuario.');
+      sendError(res, 400, 'BAD_REQUEST', 'Missing user household.');
       return;
     }
 
     const saved = await RecipeService.createEnrichedRecipe(householdId, parsed.data);
     res.json(saved);
   } catch {
-    sendError(res, 500, 'PROCESSING_FAILED', 'Error al enriquecer y guardar la receta.');
+    sendError(res, 500, 'PROCESSING_FAILED', 'Failed to enrich and save the recipe.');
   }
 });
 
 router.post('/', async (req: AuthRequest, res: Response) => {
   const parsed = RecipeSaveSchema.safeParse(req.body);
   if (!parsed.success) {
-    sendError(res, 400, 'VALIDATION_ERROR', 'La receta no es valida.', parsed.error.flatten());
+    sendError(res, 400, 'VALIDATION_ERROR', 'The recipe is not valid.', parsed.error.flatten());
     return;
   }
 
   try {
     const householdId = req.user?.householdId;
     if (!householdId) {
-      sendError(res, 400, 'BAD_REQUEST', 'Falta el household del usuario.');
+      sendError(res, 400, 'BAD_REQUEST', 'Missing user household.');
       return;
     }
 
     const saved = await RecipeService.saveRecipe(householdId, parsed.data);
     res.json(saved);
   } catch {
-    sendError(res, 500, 'PROCESSING_FAILED', 'Error al guardar la receta.');
+    sendError(res, 500, 'PROCESSING_FAILED', 'Failed to save the recipe.');
   }
 });
 
 router.post('/:id/add-to-shopping-list', async (req: AuthRequest, res: Response) => {
   const parsed = AddToShoppingSchema.safeParse(req.body);
   if (!parsed.success) {
-    sendError(res, 400, 'VALIDATION_ERROR', 'La seleccion de ingredientes no es valida.', parsed.error.flatten());
+    sendError(res, 400, 'VALIDATION_ERROR', 'The ingredient selection is not valid.', parsed.error.flatten());
     return;
   }
 
   try {
     const added = await RecipeService.addIngredientsToShoppingList(
+      req.user!.householdId!,
       req.user!.id,
+      req.params.id,
       parsed.data.listId,
       parsed.data.ingredientIds
     );
+    if (!added) {
+      sendError(res, 404, 'NOT_FOUND', 'Recipe or list not found.');
+      return;
+    }
     res.json(added);
-  } catch {
-    sendError(res, 500, 'PROCESSING_FAILED', 'Error al anadir ingredientes a la lista de la compra.');
+  } catch (error) {
+    console.error('Adding recipe ingredients to shopping failed:', error);
+    sendError(res, 500, 'PROCESSING_FAILED', 'Failed to add ingredients to the shopping list.');
   }
 });
 
@@ -264,7 +290,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     res.json(result.rows);
   } catch (error) {
     console.error('Recipe search failed:', error);
-    sendError(res, 500, 'INTERNAL_ERROR', 'Error al obtener las recetas.');
+    sendError(res, 500, 'INTERNAL_ERROR', 'Failed to fetch recipes.');
   }
 });
 
@@ -276,7 +302,7 @@ router.get('/tags/all', async (req: AuthRequest, res: Response) => {
     );
     res.json(rows);
   } catch {
-    sendError(res, 500, 'INTERNAL_ERROR', 'Error al obtener las etiquetas.');
+    sendError(res, 500, 'INTERNAL_ERROR', 'Failed to fetch tags.');
   }
 });
 
@@ -287,7 +313,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       [req.params.id, req.user!.householdId]
     );
     if (recipeResult.rows.length === 0) {
-      sendError(res, 404, 'NOT_FOUND', 'Receta no encontrada.');
+      sendError(res, 404, 'NOT_FOUND', 'Recipe not found.');
       return;
     }
 
@@ -295,14 +321,14 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     recipe.ingredients = await getRecipeIngredients(recipe.id);
     res.json(recipe);
   } catch {
-    sendError(res, 500, 'INTERNAL_ERROR', 'Error al obtener la receta.');
+    sendError(res, 500, 'INTERNAL_ERROR', 'Failed to fetch the recipe.');
   }
 });
 
 router.put('/:id/preferences', async (req: AuthRequest, res: Response) => {
   const parsed = PreferencesSchema.safeParse(req.body);
   if (!parsed.success) {
-    sendError(res, 400, 'VALIDATION_ERROR', 'Preferencias no validas.', parsed.error.flatten());
+    sendError(res, 400, 'VALIDATION_ERROR', 'Invalid preferences.', parsed.error.flatten());
     return;
   }
 
@@ -312,7 +338,7 @@ router.put('/:id/preferences', async (req: AuthRequest, res: Response) => {
       [req.params.id, req.user!.householdId]
     );
     if (!recipeExists.rows.length) {
-      sendError(res, 404, 'NOT_FOUND', 'Receta no encontrada.');
+      sendError(res, 404, 'NOT_FOUND', 'Recipe not found.');
       return;
     }
 
@@ -329,14 +355,14 @@ router.put('/:id/preferences', async (req: AuthRequest, res: Response) => {
     );
     res.json(rows[0]);
   } catch {
-    sendError(res, 500, 'INTERNAL_ERROR', 'Error al guardar preferencias.');
+    sendError(res, 500, 'INTERNAL_ERROR', 'Failed to save preferences.');
   }
 });
 
 router.put('/:id/tags', async (req: AuthRequest, res: Response) => {
   const parsed = TagsSchema.safeParse(req.body);
   if (!parsed.success) {
-    sendError(res, 400, 'VALIDATION_ERROR', 'Etiquetas no validas.', parsed.error.flatten());
+    sendError(res, 400, 'VALIDATION_ERROR', 'Invalid tags.', parsed.error.flatten());
     return;
   }
 
@@ -349,7 +375,7 @@ router.put('/:id/tags', async (req: AuthRequest, res: Response) => {
     );
     if (!recipeExists.rows.length) {
       await client.query('ROLLBACK');
-      sendError(res, 404, 'NOT_FOUND', 'Receta no encontrada.');
+      sendError(res, 404, 'NOT_FOUND', 'Recipe not found.');
       return;
     }
 
@@ -384,7 +410,7 @@ router.put('/:id/tags', async (req: AuthRequest, res: Response) => {
     res.json(rows);
   } catch {
     await client.query('ROLLBACK');
-    sendError(res, 500, 'INTERNAL_ERROR', 'Error al guardar etiquetas.');
+    sendError(res, 500, 'INTERNAL_ERROR', 'Failed to save tags.');
   } finally {
     client.release();
   }
@@ -393,14 +419,14 @@ router.put('/:id/tags', async (req: AuthRequest, res: Response) => {
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   const parsed = RecipeSaveSchema.safeParse(req.body);
   if (!parsed.success) {
-    sendError(res, 400, 'VALIDATION_ERROR', 'La receta no es valida.', parsed.error.flatten());
+    sendError(res, 400, 'VALIDATION_ERROR', 'The recipe is not valid.', parsed.error.flatten());
     return;
   }
 
   try {
     const householdId = req.user?.householdId;
     if (!householdId) {
-      sendError(res, 400, 'BAD_REQUEST', 'Falta el household del usuario.');
+      sendError(res, 400, 'BAD_REQUEST', 'Missing user household.');
       return;
     }
 
@@ -409,10 +435,10 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     if (message.includes('Recipe not found')) {
-      sendError(res, 404, 'NOT_FOUND', 'Receta no encontrada.');
+      sendError(res, 404, 'NOT_FOUND', 'Recipe not found.');
       return;
     }
-    sendError(res, 500, 'PROCESSING_FAILED', 'Error al actualizar la receta.');
+    sendError(res, 500, 'PROCESSING_FAILED', 'Failed to update the recipe.');
   }
 });
 
@@ -420,13 +446,17 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const householdId = req.user?.householdId;
     if (!householdId) {
-      sendError(res, 400, 'BAD_REQUEST', 'Falta el household del usuario.');
+      sendError(res, 400, 'BAD_REQUEST', 'Missing user household.');
       return;
     }
     await RecipeService.deleteRecipe(householdId, req.params.id);
     res.json({ success: true });
-  } catch {
-    sendError(res, 500, 'PROCESSING_FAILED', 'Error al eliminar la receta.');
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Recipe not found') {
+      sendError(res, 404, 'NOT_FOUND', 'Recipe not found.');
+      return;
+    }
+    sendError(res, 500, 'PROCESSING_FAILED', 'Failed to delete the recipe.');
   }
 });
 

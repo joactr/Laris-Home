@@ -1,7 +1,7 @@
 import { ApiError } from '../lib/api-error';
 
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
-const DEEPGRAM_LANGUAGE = process.env.DEEPGRAM_LANGUAGE || 'es';
+const DEEPGRAM_LANGUAGE = process.env.DEEPGRAM_LANGUAGE || 'en';
 const DEEPGRAM_MODEL = process.env.DEEPGRAM_MODEL || 'nova-2';
 
 type DeepgramResponse = {
@@ -21,11 +21,11 @@ export class SpeechService {
 
   static async transcribe(audio: Buffer, mimeType: string) {
     if (!DEEPGRAM_API_KEY) {
-      throw new ApiError(503, 'PROVIDER_UNAVAILABLE', 'La transcripcion de voz no esta configurada.');
+      throw new ApiError(503, 'PROVIDER_UNAVAILABLE', 'Voice transcription is not configured.');
     }
 
     if (!audio.length) {
-      throw new ApiError(400, 'BAD_REQUEST', 'El audio enviado esta vacio.');
+      throw new ApiError(400, 'BAD_REQUEST', 'The submitted audio is empty.');
     }
 
     const response = await fetch(
@@ -49,7 +49,7 @@ export class SpeechService {
     const transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim() || '';
 
     if (!transcript) {
-      throw new ApiError(422, 'INVALID_RESPONSE', 'No se pudo obtener una transcripcion valida.');
+      throw new ApiError(422, 'INVALID_RESPONSE', 'Could not obtain a valid transcription.');
     }
 
     return { transcript };

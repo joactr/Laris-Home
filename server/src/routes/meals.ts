@@ -1,7 +1,10 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { sendError } from '../lib/api-error';
+import { requireHousehold } from '../lib/household';
+import { createSafeRouter } from '../lib/router';
 import {
     ensureHouseholdListAccess,
     findActiveDuplicateCandidates,
@@ -12,8 +15,30 @@ import {
     type NormalizedShoppingItem,
 } from '../services/shopping.service';
 
-const router = Router();
+const router = createSafeRouter();
 router.use(authMiddleware);
+router.use(requireHousehold);
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const MealItemSchema = z.object({
+    meal_type: z.enum(['breakfast', 'lunch', 'dinner', 'snack']),
+    recipe_id: z.string().uuid().nullable().optional(),
+    text_content: z.string().trim().max(500).nullable().optional(),
+    servings: z.coerce.number().positive().max(99).optional(),
+}).refine((data) => data.recipe_id || data.text_content, {
+    message: 'Provide a recipe or text for the meal.',
+});
+
+const AddToShoppingSchema = z.object({
+    list_id: z.string().uuid(),
+    ingredients: z.string().trim().min(1).max(5000),
+});
+
+const MealItemPatchSchema = z.object({
+    servings: z.coerce.number().positive().max(99).optional(),
+    text_content: z.string().trim().max(500).nullable().optional(),
+}).strict();
 
 const GenerateShoppingDecisionSchema = z.object({
     key: z.string().min(1),
@@ -38,7 +63,12 @@ type MealShoppingPreviewItem = NormalizedShoppingItem & {
 
 // Get meal plan for a week
 router.get('/', async (req: AuthRequest, res: Response) => {
-    const { start, end } = req.query;
+    const start = typeof req.query.start === 'string' ? req.query.start : undefined;
+    const end = typeof req.query.end === 'string' ? req.query.end : undefined;
+    if ((start || end) && !(start && end && DATE_PATTERN.test(start) && DATE_PATTERN.test(end))) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Date range is not valid.');
+        return;
+    }
     let query = `
         SELECT m.date,
                json_agg(
@@ -59,7 +89,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
                    )
                ) as items
         FROM meal_plan_items m
-        LEFT JOIN recipes r ON m.recipe_id = r.id
+        LEFT JOIN recipes r ON m.recipe_id = r.id AND r.household_id = m.household_id
         WHERE m.household_id=$1`;
 
     const params: any[] = [req.user!.householdId];
@@ -75,18 +105,44 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
 // Add an item to a meal day
 router.post('/:date/items', async (req: AuthRequest, res: Response) => {
-    const { meal_type, recipe_id, text_content, servings } = req.body;
+    if (!DATE_PATTERN.test(req.params.date)) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Date is not valid.');
+        return;
+    }
+    const parsed = MealItemSchema.safeParse(req.body);
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Meal data is not valid.', parsed.error.flatten());
+        return;
+    }
+    const { meal_type, recipe_id, text_content, servings } = parsed.data;
+
+    if (recipe_id) {
+        const owned = await pool.query('SELECT 1 FROM recipes WHERE id=$1 AND household_id=$2', [
+            recipe_id,
+            req.user!.householdId,
+        ]);
+        if (owned.rowCount === 0) {
+            sendError(res, 404, 'NOT_FOUND', 'Recipe not found.');
+            return;
+        }
+    }
+
     const { rows } = await pool.query(
         `INSERT INTO meal_plan_items (
             household_id, date, meal_type, recipe_id, text_content, servings
         ) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-        [req.user!.householdId, req.params.date, meal_type, recipe_id || null, text_content || null, servings || 1]
+        [req.user!.householdId, req.params.date, meal_type, recipe_id ?? null, text_content ?? null, servings ?? 1]
     );
     res.json(rows[0]);
 });
 
 router.put('/items/:id', async (req: AuthRequest, res: Response) => {
-    const { servings, text_content } = req.body;
+    const parsed = MealItemPatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Meal data is not valid.', parsed.error.flatten());
+        return;
+    }
+    const { servings, text_content } = parsed.data;
     const { rows } = await pool.query(
         `UPDATE meal_plan_items
          SET servings = COALESCE($1, servings),
@@ -95,7 +151,10 @@ router.put('/items/:id', async (req: AuthRequest, res: Response) => {
          WHERE id = $3 AND household_id = $4 RETURNING *`,
         [servings, text_content, req.params.id, req.user!.householdId]
     );
-    if (!rows.length) { res.status(404).json({ error: 'Item not found' }); return; }
+    if (!rows.length) {
+        sendError(res, 404, 'NOT_FOUND', 'Meal not found.');
+        return;
+    }
     res.json(rows[0]);
 });
 
@@ -104,14 +163,26 @@ router.delete('/items/:id', async (req: AuthRequest, res: Response) => {
         `DELETE FROM meal_plan_items WHERE id = $1 AND household_id = $2 RETURNING id`,
         [req.params.id, req.user!.householdId]
     );
-    if (!rows.length) { res.status(404).json({ error: 'Item not found' }); return; }
+    if (!rows.length) {
+        sendError(res, 404, 'NOT_FOUND', 'Meal not found.');
+        return;
+    }
     res.json({ success: true, id: req.params.id });
 });
 
 router.post('/:date/add-to-shopping', async (req: AuthRequest, res: Response) => {
-    const { list_id, ingredients } = req.body;
-    if (!list_id || !ingredients) { res.status(400).json({ error: 'list_id and ingredients required' }); return; }
-    const lines = (ingredients as string).split('\n').map((l: string) => l.trim()).filter(Boolean);
+    const parsed = AddToShoppingSchema.safeParse(req.body);
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'List or ingredients are not valid.', parsed.error.flatten());
+        return;
+    }
+    const { list_id, ingredients } = parsed.data;
+    const hasAccess = await ensureHouseholdListAccess(list_id, req.user!.householdId!);
+    if (!hasAccess) {
+        sendError(res, 404, 'NOT_FOUND', 'List not found.');
+        return;
+    }
+    const lines = ingredients.split('\n').map((line) => line.trim()).filter(Boolean);
     const added = [];
     for (const line of lines) {
         added.push(await insertShoppingItem(list_id, req.user!.id, { name: line }));
@@ -121,11 +192,17 @@ router.post('/:date/add-to-shopping', async (req: AuthRequest, res: Response) =>
 
 router.post('/generate-shopping/preview', async (req: AuthRequest, res: Response) => {
     const parsed = GenerateShoppingSchema.omit({ decisions: true }).safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Shopping data is not valid.', parsed.error.flatten());
+        return;
+    }
 
     const householdId = req.user!.householdId!;
     const hasAccess = await ensureHouseholdListAccess(parsed.data.listId, householdId);
-    if (!hasAccess) { res.status(404).json({ error: 'List not found' }); return; }
+    if (!hasAccess) {
+        sendError(res, 404, 'NOT_FOUND', 'List not found.');
+        return;
+    }
 
     const preview = await buildMealShoppingPreview(parsed.data.start, parsed.data.end, parsed.data.listId, householdId);
     res.json(preview);
@@ -133,12 +210,18 @@ router.post('/generate-shopping/preview', async (req: AuthRequest, res: Response
 
 router.post('/generate-shopping', async (req: AuthRequest, res: Response) => {
     const parsed = GenerateShoppingSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Shopping data is not valid.', parsed.error.flatten());
+        return;
+    }
 
     const { start, end, listId } = parsed.data;
     const householdId = req.user!.householdId!;
     const hasAccess = await ensureHouseholdListAccess(listId, householdId);
-    if (!hasAccess) { res.status(404).json({ error: 'List not found' }); return; }
+    if (!hasAccess) {
+        sendError(res, 404, 'NOT_FOUND', 'List not found.');
+        return;
+    }
 
     const preview = await buildMealShoppingPreview(start, end, listId, householdId);
     const decisions = new Map((parsed.data.decisions || []).map((decision) => [decision.key, decision]));
@@ -200,6 +283,7 @@ async function buildMealShoppingPreview(start: string, end: string, listId: stri
              JOIN recipes r ON r.id = mpi.recipe_id
              JOIN recipe_ingredients ri ON ri.recipe_id = r.id
              WHERE mpi.household_id = $1
+               AND r.household_id = $1
                AND mpi.date >= $2
                AND mpi.date <= $3
                AND mpi.recipe_id IS NOT NULL

@@ -1,6 +1,5 @@
 -- 010_update_users_auth.sql
-TRUNCATE TABLE users CASCADE;
-
+-- Never truncate here: this migration runs against existing installs.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255) UNIQUE;
 UPDATE users SET username = 'temp_' || id WHERE username IS NULL;
 ALTER TABLE users ALTER COLUMN username SET NOT NULL;

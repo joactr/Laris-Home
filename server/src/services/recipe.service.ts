@@ -1,5 +1,6 @@
 import pool from '../db/pool';
 import { parsedRecipeSchema } from '../contracts/voice';
+import { fetchTextSafely } from '../lib/safe-fetch';
 import { OpenRouterService, ParsedIngredient, ParsedRecipe } from './openrouter.service';
 import { EmbeddingService } from './embedding.service';
 
@@ -8,19 +9,7 @@ type ImportedRecipe = ParsedRecipe & { imageUrl?: string | null };
 
 export class RecipeService {
   static async fetchAndParse(url: string): Promise<ImportedRecipe> {
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(15_000),
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch URL: ${response.status}`);
-    }
-
-    const html = await response.text();
-    const pageUrl = response.url || url;
+    const { html, finalUrl: pageUrl } = await fetchTextSafely(url);
 
     const structuredRecipe = this.extractStructuredRecipe(html, pageUrl);
     const recipe = structuredRecipe ?? this.cleanParsedRecipe(await OpenRouterService.parseRecipe(this.extractPageText(html)));
@@ -686,42 +675,50 @@ export class RecipeService {
   }
 
   static async addIngredientsToShoppingList(
+    householdId: string,
     userId: string,
+    recipeId: string,
     listId: string,
     ingredientIds: string[]
-  ): Promise<any[]> {
-    const added = [];
-    for (const id of ingredientIds) {
-      const { rows: ingredientRows } = await pool.query(
-        'SELECT * FROM recipe_ingredients WHERE id = $1',
-        [id]
-      );
+  ): Promise<any[] | null> {
+    const list = await pool.query('SELECT 1 FROM shopping_lists WHERE id = $1 AND household_id = $2', [
+      listId,
+      householdId,
+    ]);
+    if (!list.rowCount) {
+      return null;
+    }
 
-      if (ingredientRows.length > 0) {
-        const ing = ingredientRows[0];
-        const { rows: itemRows } = await pool.query(
-          `INSERT INTO list_items (list_id, name, normalized_name, quantity, unit, added_by_user_id, notes)
-          VALUES ($1, $2, lower(regexp_replace($2, '[^[:alnum:]]+', ' ', 'g')), $3, $4, $5, $6) RETURNING *`,
-          [listId, ing.name, ing.quantity, ing.unit, userId, ing.notes]
-        );
-        added.push(itemRows[0]);
-      }
+    const { rows: ingredients } = await pool.query(
+      `SELECT ri.*
+       FROM recipe_ingredients ri
+       JOIN recipes r ON r.id = ri.recipe_id
+       WHERE ri.id = ANY($1::uuid[]) AND ri.recipe_id = $2 AND r.household_id = $3`,
+      [ingredientIds, recipeId, householdId]
+    );
+    if (ingredients.length !== ingredientIds.length) {
+      return null;
+    }
+
+    const added = [];
+    for (const ing of ingredients) {
+      const { rows: itemRows } = await pool.query(
+        `INSERT INTO list_items (list_id, name, normalized_name, quantity, unit, added_by_user_id, notes)
+         VALUES ($1, $2, lower(regexp_replace($2, '[^[:alnum:]]+', ' ', 'g')), $3, $4, $5, $6) RETURNING *`,
+        [listId, ing.name, ing.quantity, ing.unit, userId, ing.notes]
+      );
+      added.push(itemRows[0]);
     }
     return added;
   }
 
   static async deleteRecipe(householdId: string, recipeId: string): Promise<void> {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('DELETE FROM recipe_ingredients WHERE recipe_id = $1', [recipeId]);
-      await client.query('DELETE FROM recipes WHERE id = $1 AND household_id = $2', [recipeId, householdId]);
-      await client.query('COMMIT');
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
+    const { rowCount } = await pool.query('DELETE FROM recipes WHERE id = $1 AND household_id = $2', [
+      recipeId,
+      householdId,
+    ]);
+    if (rowCount === 0) {
+      throw new Error('Recipe not found');
     }
   }
 

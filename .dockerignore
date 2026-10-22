@@ -1,0 +1,7 @@
+node_modules
+.git
+test-results
+backups
+**/node_modules
+**/dist
+**/build

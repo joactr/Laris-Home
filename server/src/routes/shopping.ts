@@ -1,7 +1,10 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { sendError } from '../lib/api-error';
+import { requireHousehold } from '../lib/household';
+import { createSafeRouter } from '../lib/router';
 import {
     ensureHouseholdListAccess,
     findActiveDuplicateCandidates,
@@ -11,16 +14,24 @@ import {
     normalizeShoppingInput,
 } from '../services/shopping.service';
 
-const router = Router();
+const router = createSafeRouter();
 router.use(authMiddleware);
+router.use(requireHousehold);
 
 const ItemSchema = z.object({
-    name: z.string().min(1),
+    name: z.string().trim().min(1).max(200),
     quantity: z.coerce.number().positive().optional(),
-    unit: z.string().optional(),
-    category: z.string().optional(),
-    notes: z.string().optional(),
+    unit: z.string().trim().max(50).optional(),
+    category: z.string().trim().max(100).optional(),
+    notes: z.string().trim().max(2000).optional(),
     allowDuplicate: z.boolean().optional(),
+});
+
+const ItemPatchSchema = ItemSchema.partial().strict();
+
+const ListSchema = z.object({
+    name: z.string().trim().min(1).max(100),
+    is_default: z.boolean().optional(),
 });
 
 const MergeSchema = z.object({
@@ -39,11 +50,14 @@ router.get('/lists', async (req: AuthRequest, res: Response) => {
 
 // Create a list
 router.post('/lists', async (req: AuthRequest, res: Response) => {
-    const { name, is_default } = req.body;
-    if (!name) { res.status(400).json({ error: 'name required' }); return; }
+    const parsed = ListSchema.safeParse(req.body);
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'List name is not valid.', parsed.error.flatten());
+        return;
+    }
     const { rows } = await pool.query(
         'INSERT INTO shopping_lists (household_id, name, is_default) VALUES ($1,$2,$3) RETURNING *',
-        [req.user!.householdId, name, is_default ?? false]
+        [req.user!.householdId, parsed.data.name, parsed.data.is_default ?? false]
     );
     res.status(201).json(rows[0]);
 });
@@ -52,7 +66,7 @@ router.post('/lists', async (req: AuthRequest, res: Response) => {
 router.delete('/lists/:id', async (req: AuthRequest, res: Response) => {
     const { rowCount } = await pool.query('DELETE FROM shopping_lists WHERE id=$1 AND household_id=$2', [req.params.id, req.user!.householdId]);
     if (rowCount === 0) {
-        res.status(404).json({ error: 'List not found' });
+        sendError(res, 404, 'NOT_FOUND', 'List not found.');
         return;
     }
     res.json({ ok: true });
@@ -62,7 +76,7 @@ router.delete('/lists/:id', async (req: AuthRequest, res: Response) => {
 router.get('/lists/:id/items', async (req: AuthRequest, res: Response) => {
     const hasAccess = await ensureHouseholdListAccess(req.params.id, req.user!.householdId!);
     if (!hasAccess) {
-        res.status(404).json({ error: 'List not found' });
+        sendError(res, 404, 'NOT_FOUND', 'List not found.');
         return;
     }
     const { rows } = await pool.query(
@@ -78,10 +92,13 @@ router.get('/lists/:id/items', async (req: AuthRequest, res: Response) => {
 
 router.post('/lists/:id/items/preview', async (req: AuthRequest, res: Response) => {
     const parsed = ItemSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Item data is not valid.', parsed.error.flatten());
+        return;
+    }
     const hasAccess = await ensureHouseholdListAccess(req.params.id, req.user!.householdId!);
     if (!hasAccess) {
-        res.status(404).json({ error: 'List not found' });
+        sendError(res, 404, 'NOT_FOUND', 'List not found.');
         return;
     }
 
@@ -93,7 +110,7 @@ router.post('/lists/:id/items/preview', async (req: AuthRequest, res: Response) 
 router.get('/lists/:id/buy-again', async (req: AuthRequest, res: Response) => {
     const hasAccess = await ensureHouseholdListAccess(req.params.id, req.user!.householdId!);
     if (!hasAccess) {
-        res.status(404).json({ error: 'List not found' });
+        sendError(res, 404, 'NOT_FOUND', 'List not found.');
         return;
     }
 
@@ -126,22 +143,22 @@ router.get('/lists/:id/buy-again', async (req: AuthRequest, res: Response) => {
 // Add item to a list
 router.post('/lists/:id/items', async (req: AuthRequest, res: Response) => {
     const parsed = ItemSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Item data is not valid.', parsed.error.flatten());
+        return;
+    }
     const hasAccess = await ensureHouseholdListAccess(req.params.id, req.user!.householdId!);
     if (!hasAccess) {
-        res.status(404).json({ error: 'List not found' });
+        sendError(res, 404, 'NOT_FOUND', 'List not found.');
         return;
     }
     const normalized = normalizeShoppingInput(parsed.data);
     if (!parsed.data.allowDuplicate) {
         const candidates = await findActiveDuplicateCandidates(req.params.id, normalized.normalized_name);
         if (candidates.length > 0) {
-            res.status(409).json({
-                error: {
-                    code: 'DUPLICATE_ITEM',
-                    message: 'Ya existe un artículo parecido en la lista.',
-                    details: { item: normalized, candidates },
-                },
+            sendError(res, 409, 'DUPLICATE_ITEM', 'A similar item already exists in the list.', {
+                item: normalized,
+                candidates,
             });
             return;
         }
@@ -153,10 +170,13 @@ router.post('/lists/:id/items', async (req: AuthRequest, res: Response) => {
 
 router.post('/items/:id/merge', async (req: AuthRequest, res: Response) => {
     const parsed = MergeSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Item data is not valid.', parsed.error.flatten());
+        return;
+    }
     const existingItem = await getHouseholdOwnedItem(req.params.id, req.user!.householdId!);
     if (!existingItem) {
-        res.status(404).json({ error: 'Item not found' });
+        sendError(res, 404, 'NOT_FOUND', 'Item not found.');
         return;
     }
 
@@ -168,10 +188,15 @@ router.post('/items/:id/merge', async (req: AuthRequest, res: Response) => {
 router.patch('/items/:id', async (req: AuthRequest, res: Response) => {
     const existingItem = await getHouseholdOwnedItem(req.params.id, req.user!.householdId!);
     if (!existingItem) {
-        res.status(404).json({ error: 'Item not found' });
+        sendError(res, 404, 'NOT_FOUND', 'Item not found.');
         return;
     }
-    const { name, quantity, unit, category, notes } = req.body;
+    const parsed = ItemPatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Item data is not valid.', parsed.error.flatten());
+        return;
+    }
+    const { name, quantity, unit, category, notes } = parsed.data;
     const normalized = name ? normalizeShoppingInput({ name, quantity, unit, category, notes }) : null;
     const { rows } = await pool.query(
         `UPDATE list_items SET name=COALESCE($1,name), normalized_name=COALESCE($2,normalized_name),
@@ -186,7 +211,7 @@ router.patch('/items/:id', async (req: AuthRequest, res: Response) => {
 router.patch('/items/:id/complete', async (req: AuthRequest, res: Response) => {
     const existingItem = await getHouseholdOwnedItem(req.params.id, req.user!.householdId!);
     if (!existingItem) {
-        res.status(404).json({ error: 'Item not found' });
+        sendError(res, 404, 'NOT_FOUND', 'Item not found.');
         return;
     }
     const { rows } = await pool.query(
@@ -202,7 +227,7 @@ router.patch('/items/:id/complete', async (req: AuthRequest, res: Response) => {
 router.delete('/items/:id', async (req: AuthRequest, res: Response) => {
     const existingItem = await getHouseholdOwnedItem(req.params.id, req.user!.householdId!);
     if (!existingItem) {
-        res.status(404).json({ error: 'Item not found' });
+        sendError(res, 404, 'NOT_FOUND', 'Item not found.');
         return;
     }
     await pool.query('DELETE FROM list_items WHERE id=$1', [req.params.id]);
@@ -213,7 +238,7 @@ router.delete('/items/:id', async (req: AuthRequest, res: Response) => {
 router.post('/items/:id/readd', async (req: AuthRequest, res: Response) => {
     const existingItem = await getHouseholdOwnedItem(req.params.id, req.user!.householdId!);
     if (!existingItem) {
-        res.status(404).json({ error: 'Item not found' });
+        sendError(res, 404, 'NOT_FOUND', 'Item not found.');
         return;
     }
     const { rows } = await pool.query(

@@ -1,14 +1,22 @@
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import pool from './pool';
 
 async function seed() {
+    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PROD_SEED !== 'true') {
+        console.error('Refusing to run the demo seed in production. Set ALLOW_PROD_SEED=true to override.');
+        process.exit(1);
+    }
+
+    const password = process.env.SEED_PASSWORD || crypto.randomBytes(12).toString('base64url');
+    console.log(`Seed user password: ${password}`);
+
     const client = await pool.connect();
     try {
-        await client.query('TRUNCATE TABLE users CASCADE');
-        await client.query('TRUNCATE TABLE households CASCADE');
+        await client.query('TRUNCATE TABLE users, households CASCADE');
 
         // Users
-        const passwordHash = await bcrypt.hash('password123', 10);
+        const passwordHash = await bcrypt.hash(password, 10);
         const jmRes = await client.query(
             `INSERT INTO users (name, username, password_hash, is_admin, color) VALUES ($1,$2,$3,$4,$5)
              RETURNING id`,

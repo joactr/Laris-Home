@@ -1,12 +1,23 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { sendError } from '../lib/api-error';
+import { isHouseholdMember, requireHousehold } from '../lib/household';
+import { createSafeRouter } from '../lib/router';
 import { sendPushNotification } from '../services/push.service';
 
-const router = Router();
+const router = createSafeRouter();
 router.use(authMiddleware);
+router.use(requireHousehold);
+
+router.param('id', (req, res, next, id) => {
+    if (z.string().uuid().safeParse(id).success) {
+        next();
+        return;
+    }
+    sendError(res, 404, 'NOT_FOUND', 'Resource not found.');
+});
 
 const ProjectSchema = z.object({
     name: z.string().min(1),
@@ -42,18 +53,8 @@ async function findTaskForHousehold(taskId: string, householdId: string) {
     return rows[0] || null;
 }
 
-async function ensureAssignableUser(userId: string | null | undefined, householdId: string) {
-    if (!userId) {
-        return true;
-    }
-
-    const { rows } = await pool.query(
-        `SELECT 1
-         FROM memberships
-         WHERE user_id = $1 AND household_id = $2`,
-        [userId, householdId]
-    );
-    return rows.length > 0;
+function ensureAssignableUser(userId: string | null | undefined, householdId: string) {
+    return !userId || isHouseholdMember(userId, householdId);
 }
 
 // Projects CRUD
@@ -68,7 +69,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 router.post('/', async (req: AuthRequest, res: Response) => {
     const parsed = ProjectSchema.safeParse(req.body);
     if (!parsed.success) {
-        sendError(res, 400, 'VALIDATION_ERROR', 'Los datos del proyecto no son validos.', parsed.error.flatten());
+        sendError(res, 400, 'VALIDATION_ERROR', 'Project data is not valid.', parsed.error.flatten());
         return;
     }
 
@@ -82,7 +83,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 router.put('/:id', async (req: AuthRequest, res: Response) => {
     const parsed = ProjectSchema.partial().safeParse(req.body);
     if (!parsed.success) {
-        sendError(res, 400, 'VALIDATION_ERROR', 'Los datos del proyecto no son validos.', parsed.error.flatten());
+        sendError(res, 400, 'VALIDATION_ERROR', 'Project data is not valid.', parsed.error.flatten());
         return;
     }
 
@@ -97,7 +98,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     );
 
     if (!rows.length) {
-        sendError(res, 404, 'NOT_FOUND', 'Proyecto no encontrado.');
+        sendError(res, 404, 'NOT_FOUND', 'Project not found.');
         return;
     }
 
@@ -111,7 +112,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     );
 
     if (result.rowCount === 0) {
-        sendError(res, 404, 'NOT_FOUND', 'Proyecto no encontrado.');
+        sendError(res, 404, 'NOT_FOUND', 'Project not found.');
         return;
     }
 
@@ -146,21 +147,21 @@ router.get('/:projectId/tasks', async (req: AuthRequest, res: Response) => {
 router.post('/:projectId/tasks', async (req: AuthRequest, res: Response) => {
     const parsed = TaskSchema.safeParse(req.body);
     if (!parsed.success) {
-        sendError(res, 400, 'VALIDATION_ERROR', 'Los datos de la tarea no son validos.', parsed.error.flatten());
+        sendError(res, 400, 'VALIDATION_ERROR', 'Task data is not valid.', parsed.error.flatten());
         return;
     }
 
     const householdId = req.user!.householdId || '';
     const project = await findProjectForHousehold(req.params.projectId, householdId);
     if (!project) {
-        sendError(res, 404, 'NOT_FOUND', 'Proyecto no encontrado.');
+        sendError(res, 404, 'NOT_FOUND', 'Project not found.');
         return;
     }
 
     const d = parsed.data;
     const canAssignUser = await ensureAssignableUser(d.assigned_user_id, householdId);
     if (!canAssignUser) {
-        sendError(res, 400, 'BAD_REQUEST', 'La tarea no se puede asignar a un usuario fuera del hogar.');
+        sendError(res, 400, 'BAD_REQUEST', 'Task cannot be assigned to a user outside the household.');
         return;
     }
 
@@ -183,24 +184,24 @@ router.post('/:projectId/tasks', async (req: AuthRequest, res: Response) => {
 
     if (d.assigned_user_id && d.assigned_user_id !== req.user!.id) {
         void sendPushNotification(d.assigned_user_id, {
-            title: 'Nueva tarea asignada',
-            body: `${req.user!.name} te ha asignado: ${d.title}`,
+            title: 'New task assigned',
+            body: `${req.user!.name} assigned you: ${d.title}`,
             url: `/projects/${req.params.projectId}`,
-        });
+        }).catch((error) => console.error('Project push failed:', error));
     }
 });
 
 router.patch('/tasks/:id', async (req: AuthRequest, res: Response) => {
     const parsed = TaskSchema.partial().safeParse(req.body);
     if (!parsed.success) {
-        sendError(res, 400, 'VALIDATION_ERROR', 'Los datos de la tarea no son validos.', parsed.error.flatten());
+        sendError(res, 400, 'VALIDATION_ERROR', 'Task data is not valid.', parsed.error.flatten());
         return;
     }
 
     const householdId = req.user!.householdId || '';
     const existingTask = await findTaskForHousehold(req.params.id, householdId);
     if (!existingTask) {
-        sendError(res, 404, 'NOT_FOUND', 'Tarea no encontrada.');
+        sendError(res, 404, 'NOT_FOUND', 'Task not found.');
         return;
     }
 
@@ -211,7 +212,7 @@ router.patch('/tasks/:id', async (req: AuthRequest, res: Response) => {
 
     const canAssignUser = await ensureAssignableUser(nextAssignedUserId, householdId);
     if (!canAssignUser) {
-        sendError(res, 400, 'BAD_REQUEST', 'La tarea no se puede asignar a un usuario fuera del hogar.');
+        sendError(res, 400, 'BAD_REQUEST', 'Task cannot be assigned to a user outside the household.');
         return;
     }
 
@@ -243,14 +244,18 @@ router.patch('/tasks/:id', async (req: AuthRequest, res: Response) => {
         values
     );
     const task = rows[0];
+    if (!task) {
+        sendError(res, 404, 'NOT_FOUND', 'Task not found.');
+        return;
+    }
     res.json(task);
 
     if (nextAssignedUserId && nextAssignedUserId !== req.user!.id) {
         void sendPushNotification(nextAssignedUserId, {
-            title: 'Tarea actualizada/asignada',
-            body: `${req.user!.name} te ha asignado o actualizado: ${task.title}`,
+            title: 'Task updated/assigned',
+            body: `${req.user!.name} assigned or updated you: ${task.title}`,
             url: '/projects',
-        });
+        }).catch((error) => console.error('Project push failed:', error));
     }
 });
 
@@ -265,7 +270,7 @@ router.delete('/tasks/:id', async (req: AuthRequest, res: Response) => {
     );
 
     if (result.rowCount === 0) {
-        sendError(res, 404, 'NOT_FOUND', 'Tarea no encontrada.');
+        sendError(res, 404, 'NOT_FOUND', 'Task not found.');
         return;
     }
 

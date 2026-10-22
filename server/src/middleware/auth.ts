@@ -10,7 +10,7 @@ export interface AuthRequest extends Request {
 export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
     const header = req.headers.authorization;
     if (!header?.startsWith('Bearer ')) {
-        sendError(res, 401, 'UNAUTHORIZED', 'Falta el token de autenticacion.');
+        sendError(res, 401, 'UNAUTHORIZED', 'Missing auth token.');
         return;
     }
     const token = header.split(' ')[1];
@@ -19,6 +19,6 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
         req.user = payload;
         next();
     } catch {
-        sendError(res, 401, 'UNAUTHORIZED', 'El token no es valido o ha expirado.');
+        sendError(res, 401, 'UNAUTHORIZED', 'Token is invalid or expired.');
     }
 }

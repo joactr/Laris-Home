@@ -105,12 +105,12 @@ export class OpenRouterService {
       throw new Error('OPENROUTER_API_KEY is not configured');
     }
 
-    const systemMessage = `Eres un asistente especializado en extraer recetas de cocina estructuradas a partir de contenido desordenado de páginas web (HTML o texto).
-Siempre debes devolver toda la información en español: título, descripción, ingredientes, notas e instrucciones.
-Normaliza los nombres de los ingredientes a español natural (por ejemplo, “cebolla”, “ajo”, “aceite de oliva”, “pechuga de pollo”).
-Ignora y elimina cualquier ruido editorial o comercial que no sea parte de la receta: textos como "affiliate link", "sponsored", anuncios, recomendaciones de compra, enlaces de producto, notas de app, comentarios de usuarios o contenido promocional.
-Decodifica entidades HTML antes de responder (por ejemplo, &#x27; debe ser apóstrofo normal) y no incluyas símbolos HTML escapados en ningún campo.
-Devuelve ÚNICAMENTE un objeto JSON válido que siga exactamente este esquema:
+    const systemMessage = `You are an assistant specialized in extracting structured cooking recipes from messy web page content (HTML or text).
+Keep the ORIGINAL language of the source content for all recipe fields: title, description, ingredients, notes and instructions. Do NOT translate the recipe to another language.
+Ingredient names may be in any language; keep each ingredient name in its original language while still parsing quantity and unit correctly.
+Ignore and remove any editorial or commercial noise that is not part of the recipe: texts like "affiliate link", "sponsored", ads, purchase recommendations, product links, app notes, user comments or promotional content.
+Decode HTML entities before responding (for example, &#x27; should be a normal apostrophe) and do not include escaped HTML symbols in any field.
+Return ONLY a valid JSON object following exactly this schema:
 
 {
   "title": "string",
@@ -131,19 +131,19 @@ Devuelve ÚNICAMENTE un objeto JSON válido que siga exactamente este esquema:
     "string"
   ]
 }
-Si falta algún dato (por ejemplo, tiempos o raciones), pon null o un valor razonable, pero nunca cambies la estructura.
-No añadas comentarios, explicaciones ni texto fuera del JSON.`;
+If any data is missing (for example, times or servings), use null or a reasonable value, but never change the structure.
+Do not add comments, explanations or text outside the JSON.`;
 
-    const userMessage = `A continuación tienes el contenido extraído de una página de receta.
-Extrae la receta siguiendo el esquema JSON indicado en el mensaje del sistema.
-Traduce y/o normaliza todo al español (título, descripción, ingredientes, instrucciones).
-Si el contenido original está en otro idioma, interpreta el significado pero escribe el resultado final en español.
+    const userMessage = `Below is the content extracted from a recipe page.
+Extract the recipe following the JSON schema given in the system message.
+Keep everything in the original language of the content (title, description, ingredients, instructions); do not translate.
 
-Contenido de la página:
+Page content:
 ${content}`;
 
     const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
       method: 'POST',
+      signal: AbortSignal.timeout(60_000),
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
@@ -164,8 +164,8 @@ ${content}`;
       throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
     }
 
-    const data = await response.json() as any;
-    let resultText = data.choices[0].message.content;
+    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const resultText = data.choices?.[0]?.message?.content ?? '';
 
     return parseStructuredResponse(
       resultText,
@@ -179,28 +179,30 @@ ${content}`;
       throw new Error('OPENROUTER_API_KEY is not configured');
     }
 
-    const systemMessage = `Eres un asistente de compras. Analiza esta transcripción del usuario y devuelve SOLO JSON válido:
-Usuario dijo: "${transcript}"
+    const systemMessage = `You are a shopping assistant. Analyze this user transcript and return ONLY valid JSON:
+User said: "${transcript}"
 
-Extrae:
-- Productos mencionados (sinónimos OK: manzana=apple, etc.)
-- Cantidades (explícitas o implícitas: "unas" = 2-3)
-- Si no menciona cantidad, usa 1
+Extract:
+- Mentioned products (synonyms OK: "apples" and "apple" are the same product), keeping the product name in the user's original wording/language.
+- Quantities (explicit or implicit: "a few" = 2-3)
+- If no quantity is mentioned, use 1
+- Write the "message" field in English.
 
-Formato EXACTO:
+EXACT format:
 {
   "items": [
-    {"name": "nombre_producto", "quantity": 2}
+    {"name": "product_name", "quantity": 2}
   ],
-  "message": "Resumen para usuario"
+  "message": "Summary for user"
 }
 
-Ejemplos:
-"Quiero 2 kilos de manzanas y 1 litro de leche" -> items: [{"name":"manzanas","quantity":2},{"name":"leche","quantity":1}]
-"añade pan" -> items: [{"name":"pan","quantity":1}]`;
+Examples:
+"I want 2 kilos of apples and 1 liter of milk" -> items: [{"name":"apples","quantity":2},{"name":"milk","quantity":1}]
+"add bread" -> items: [{"name":"bread","quantity":1}]`;
 
     const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
       method: 'POST',
+      signal: AbortSignal.timeout(60_000),
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
@@ -221,8 +223,8 @@ Ejemplos:
         throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
     }
 
-    const data = await response.json() as any;
-    let resultText = data.choices[0].message.content;
+    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const resultText = data.choices?.[0]?.message?.content ?? '';
 
     return parseStructuredResponse(
       resultText,
@@ -240,38 +242,40 @@ Ejemplos:
       throw new Error('OPENROUTER_API_KEY is not configured');
     }
 
-    const recipesContext = existingRecipes.map(r => 
-      `ID: ${r.id} | Título: ${r.title} | Ingredientes: ${r.ingredients.join(', ')}${r.instructions ? ` | Instrucciones: ${r.instructions.substring(0, 100)}...` : ''}`
+    const recipesContext = existingRecipes.map(r =>
+      `ID: ${r.id} | Title: ${r.title} | Ingredients: ${r.ingredients.join(', ')}${r.instructions ? ` | Instructions: ${r.instructions.substring(0, 100)}...` : ''}`
     ).join('\n');
 
-    const systemMessage = `Eres experto en recetas y búsqueda semántica. Analiza la petición del usuario: "${transcript}"
+    const systemMessage = `You are a recipes expert with semantic search skills. Analyze the user request: "${transcript}"
 
-Mis recetas guardadas (Contexto):
-${recipesContext || 'No hay recetas guardadas aún.'}
+My saved recipes (Context):
+${recipesContext || 'No saved recipes yet.'}
 
-Instrucciones de búsqueda semántica:
-1. Analiza cuidadosamente los ingredientes y el tipo de plato solicitado por el usuario.
-2. Compara esto con mis recetas guardadas. Busca coincidencias semánticas (ej: si pide "pasta con algo de mar" y tengo "Espaguetis Frutti di Mare", es una coincidencia).
-3. Si encuentras una receta que encaja perfectamente o muy bien, DEBES ponerla como primera opción usando EXACTAMENTE el nombre que aparece en mi lista (Contexto).
-4. No te limites solo a nombres exactos; analiza si los ingredientes que el usuario menciona están presentes en alguna receta guardada.
-5. Siempre sugiere ${suggestionLimit} recetas nuevas y creativas basadas en lo que pide el usuario, ADEMÁS de las recetas guardadas que coincidan.
+Semantic search instructions:
+1. Carefully analyze the ingredients and the type of dish requested by the user.
+2. Compare this with my saved recipes. Look for semantic matches (e.g. if they ask for "pasta with something from the sea" and I have "Spaghetti Frutti di Mare", that is a match).
+3. If you find a recipe that fits perfectly or very well, you MUST put it as the first option using EXACTLY the name as it appears in my list (Context); never translate saved recipe names.
+4. Do not limit yourself to exact names only; analyze whether the ingredients the user mentions are present in any saved recipe.
+5. Always suggest ${suggestionLimit} new creative recipes based on what the user asks for, IN ADDITION to the matching saved recipes.
+6. Write all newly generated text (new recipe names, ingredients, instructions, and the "message" field) in English. Keep saved recipe names exactly as they are.
 
-Devuelve SOLO JSON:
+Return ONLY JSON:
 {
   "recipes": [
     {
-      "name": "Nombre de la receta (USA EL NOMBRE EXACTO SI EXISTE EN MI LISTA)",
+      "name": "Recipe name (USE THE EXACT NAME IF IT EXISTS IN MY LIST)",
       "ingredients": ["ing1", "ing2"],
-      "instructions": "Paso 1. Paso 2.",
+      "instructions": "Step 1. Step 2.",
       "time": "15 min",
-      "image": "url_imagen"
+      "image": "image_url"
     }
   ],
-  "message": "Mensaje personalizado"
+  "message": "Personalized message"
 }`;
 
     const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
       method: 'POST',
+      signal: AbortSignal.timeout(60_000),
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
@@ -292,8 +296,8 @@ Devuelve SOLO JSON:
         throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
     }
 
-    const data = await response.json() as any;
-    let resultText = data.choices[0].message.content;
+    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const resultText = data.choices?.[0]?.message?.content ?? '';
 
     return parseStructuredResponse(
       resultText,
@@ -307,15 +311,15 @@ Devuelve SOLO JSON:
       throw new Error('OPENROUTER_API_KEY is not configured');
     }
 
-    const systemMessage = `Eres un experto chef. Tu tarea es recibir una receta básica (título, lista simple de ingredientes e instrucciones breves) y devolver una versión detallada y profesional.
-Debes:
-1. Mantener el título.
-2. Expandir la descripción para que sea atractiva.
-3. Estimar de forma realista para cuántas personas es (servings), tiempo de preparación y cocción.
-4. Estructurar los ingredientes con cantidades y unidades lógicas (ej: "2 unidades", "100 g", "1 cucharada").
-5. Detallar las instrucciones paso a paso de forma clara.
+    const systemMessage = `You are an expert chef. Your task is to take a basic recipe (title, simple ingredient list and brief instructions) and return a detailed, professional version.
+You must:
+1. Keep the title (in its original language).
+2. Expand the description to make it appealing.
+3. Realistically estimate servings, prep time and cook time.
+4. Structure the ingredients with logical quantities and units (e.g. "2 units", "100 g", "1 tablespoon").
+5. Detail the instructions step by step, clearly.
 
-Toda la respuesta debe estar en español y seguir estrictamente este formato JSON:
+Write all generated text (description, ingredient names, instructions) in English, keeping the same JSON structure, and follow strictly this JSON format:
 
 {
   "title": "string",
@@ -325,28 +329,29 @@ Toda la respuesta debe estar en español y seguir estrictamente este formato JSO
   "cookTimeMinutes": 30,
   "ingredients": [
     {
-      "name": "nombre del ingrediente",
-      "originalText": "cantidad y unidad + nombre",
+      "name": "ingredient name",
+      "originalText": "quantity and unit + name",
       "quantity": 1,
-      "unit": "unidad",
-      "notes": "notas opcionales"
+      "unit": "unit",
+      "notes": "optional notes"
     }
   ],
   "instructions": [
-    "Paso 1...",
-    "Paso 2..."
+    "Step 1...",
+    "Step 2..."
   ]
 }
 
-No añadas ningún texto antes ni después del JSON.`;
+Do not add any text before or after the JSON.`;
 
-    const userMessage = `Receta básica:
-Título: ${title}
-Ingredientes: ${ingredients.join(', ')}
-Instrucciones: ${instructions}`;
+    const userMessage = `Basic recipe:
+Title: ${title}
+Ingredients: ${ingredients.join(', ')}
+Instructions: ${instructions}`;
 
     const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
       method: 'POST',
+      signal: AbortSignal.timeout(60_000),
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
@@ -367,8 +372,8 @@ Instrucciones: ${instructions}`;
         throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
     }
 
-    const data = await response.json() as any;
-    let resultText = data.choices[0].message.content;
+    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const resultText = data.choices?.[0]?.message?.content ?? '';
 
     return parseStructuredResponse(
       resultText,
@@ -382,35 +387,37 @@ Instrucciones: ${instructions}`;
       throw new Error('OPENROUTER_API_KEY is not configured');
     }
 
-    const systemMessage = `Eres un nutricionista experto y preciso. Tu única tarea es calcular los valores nutricionales precisos por cada ración (serving) de una receta.
-Para mejorar la precisión y evitar alucinaciones, debes basarte estrictamente en los ingredientes proporcionados, sus cantidades y el número de raciones.
-Calcula los valores totales de la receta completa y luego divídelos exactamente por el número de raciones indicadas.
+    const systemMessage = `You are an expert and precise nutritionist. Your only task is to calculate the accurate nutritional values per serving of a recipe.
+To improve precision and avoid hallucinations, base yourself strictly on the provided ingredients, their quantities and the number of servings.
+Calculate the total values for the whole recipe and then divide them exactly by the indicated number of servings.
 
-Considera:
-- Densidad calórica de cada ingrediente (ej. aceite de oliva = 9 kcal/g, pechuga de pollo = 165 kcal/100g).
-- Cantidades estándar si se usan medidas como "taza", "cucharada", etc.
-- Asume tamaños promedio para unidades sueltas (ej. 1 manzana mediana = 180g).
+Consider:
+- Caloric density of each ingredient (e.g. olive oil = 9 kcal/g, chicken breast = 165 kcal/100g).
+- Standard quantities when measures like "cup", "tablespoon", etc. are used.
+- Assume average sizes for single units (e.g. 1 medium apple = 180g).
+- Ingredient names may be in any language; interpret them by meaning.
 
-Devuelve ÚNICAMENTE un objeto JSON válido con este formato:
+Return ONLY a valid JSON object with this format:
 {
-  "caloriesPerServing": numero,
-  "proteinPerServing": numero,
-  "carbsPerServing": numero,
-  "fatPerServing": numero
+  "caloriesPerServing": number,
+  "proteinPerServing": number,
+  "carbsPerServing": number,
+  "fatPerServing": number
 }
-Si es imposible determinar las macros con cierta precisión, usa valores nulos (null).
-No incluyas absolutamente ninguna explicación ni texto adicional al JSON.`;
+If it is impossible to determine the macros with reasonable precision, use null values.
+Do not include absolutely any explanation or additional text besides the JSON.`;
 
-    const userMessage = `Por favor calcula las macros para 1 ración basada en estos datos:
-Receta: ${title}
-Raciones totales de la receta: ${servings}
-Ingredientes totales:
+    const userMessage = `Please calculate the macros for 1 serving based on this data:
+Recipe: ${title}
+Total servings in the recipe: ${servings}
+Total ingredients:
 ${ingredients.join('\\n')}
 
-Genera el JSON con el valor exacto por 1 ración.`;
+Generate the JSON with the exact value for 1 serving.`;
 
     const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
       method: 'POST',
+      signal: AbortSignal.timeout(60_000),
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
@@ -423,7 +430,7 @@ Genera el JSON con el valor exacto por 1 ración.`;
           { role: 'system', content: systemMessage },
           { role: 'user', content: userMessage }
         ],
-        temperature: 0.1 // Baja temperatura para respuestas más deterministas y precisas.
+        temperature: 0.1 // Low temperature for more deterministic and precise responses.
       })
     });
 
@@ -432,8 +439,8 @@ Genera el JSON con el valor exacto por 1 ración.`;
         throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
     }
 
-    const data = await response.json() as any;
-    let resultText = data.choices[0].message.content;
+    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const resultText = data.choices?.[0]?.message?.content ?? '';
 
     try {
       return parseStructuredResponse(
@@ -454,23 +461,23 @@ Genera el JSON con el valor exacto por 1 ración.`;
       throw new Error('OPENROUTER_API_KEY is not configured');
     }
 
-    const systemMessage = `Eres un asistente de cocina experto. Estás ayudando al usuario con una receta específica.
-El usuario puede hacer preguntas sobre la receta o pedir modificaciones (sustituir ingredientes, quitar algo, cambiar porciones, etc.).
+    const systemMessage = `You are an expert cooking assistant. You are helping the user with a specific recipe.
+The user may ask questions about the recipe or request modifications (substitute ingredients, remove something, change servings, etc.).
 
-Receta actual:
-Título: ${recipe.title}
-Ingredientes: ${recipe.ingredients.join(', ')}
-Instrucciones: ${recipe.instructions}
+Current recipe:
+Title: ${recipe.title}
+Ingredients: ${recipe.ingredients.join(', ')}
+Instructions: ${recipe.instructions}
 
-Instrucciones de comportamiento:
-1. Si el usuario hace una pregunta o pide consejo (ej: "¿crees que quedaría mejor con más mantequilla?"), RESPONDE de forma amable y experta en el campo "message". NO generes un "modifiedRecipe" a menos que el usuario diga explícitamente que lo cambies (ej: "Añade más mantequilla entonces", "Cambia el pollo por pavo").
-2. Si el usuario pide un cambio explícito, genera la nueva versión de la receta completa en el campo "modifiedRecipe" y explica brevemente qué has cambiado en el campo "message".
-3. La versión modificada debe seguir el esquema ParsedRecipe.
-4. Siempre responde en español.
+Behavior instructions:
+1. If the user asks a question or requests advice (e.g. "do you think it would be better with more butter?"), ANSWER in a friendly, expert way in the "message" field. Do NOT generate a "modifiedRecipe" unless the user explicitly says to change it (e.g. "Add more butter then", "Swap the chicken for turkey").
+2. If the user requests an explicit change, generate the new full version of the recipe in the "modifiedRecipe" field and briefly explain what you changed in the "message" field.
+3. The modified version must follow the ParsedRecipe schema and keep the original language of the recipe.
+4. Always write the "message" field in English.
 
-Devuelve SOLO JSON con este formato:
+Return ONLY JSON with this format:
 {
-  "message": "Respuesta al usuario o explicación del cambio",
+  "message": "Reply to the user or explanation of the change",
   "modifiedRecipe": {
     "title": "string",
     "description": "string",
@@ -479,20 +486,21 @@ Devuelve SOLO JSON con este formato:
     "cookTimeMinutes": 30,
     "ingredients": [
       {
-        "name": "nombre",
-        "originalText": "cantidad unidad nombre",
+        "name": "name",
+        "originalText": "quantity unit name",
         "quantity": 1,
-        "unit": "unidad",
+        "unit": "unit",
         "notes": "string"
       }
     ],
-    "instructions": ["paso 1", "paso 2"]
+    "instructions": ["step 1", "step 2"]
   }
 }
-Si no hay cambio explícito solicitado, "modifiedRecipe" DEBE ser null.`;
+If no explicit change is requested, "modifiedRecipe" MUST be null.`;
 
     const response = await fetch(`${OPENROUTER_API_URL}/chat/completions`, {
       method: 'POST',
+      signal: AbortSignal.timeout(60_000),
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
@@ -513,8 +521,8 @@ Si no hay cambio explícito solicitado, "modifiedRecipe" DEBE ser null.`;
       throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
     }
 
-    const data = await response.json() as any;
-    let resultText = data.choices[0].message.content;
+    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const resultText = data.choices?.[0]?.message?.content ?? '';
 
     return parseStructuredResponse(
       resultText,
@@ -528,29 +536,29 @@ Si no hay cambio explícito solicitado, "modifiedRecipe" DEBE ser null.`;
       throw new Error('OPENROUTER_API_KEY is not configured');
     }
 
-    const systemMessage = `Eres un asistente doméstico que resume el día de una casa compartida.
-Escribe en español natural, concreto, útil y accionable.
-Reglas:
-- 3 o 4 frases como máximo.
-- Da detalles reales: títulos, horas, comidas o artículos concretos cuando existan.
-- Prioriza primero lo que requiere atención hoy.
-- Si hay eventos, cita al menos el más importante con su hora.
-- Si hay compra pendiente, menciona ejemplos de artículos concretos, no solo el número total.
-- Si hay comidas planificadas, di cuáles.
-- Si algo está vacío, no lo menciones.
-- No uses tono marketiniano.
-- No inventes datos.
-Devuelve solo texto plano.`;
+    const systemMessage = `You are a home assistant summarizing the day of a shared household.
+Write in natural, concrete, useful and actionable English.
+Rules:
+- 3 or 4 sentences maximum.
+- Give real details: concrete titles, times, meals or items when they exist.
+- Prioritize first what needs attention today.
+- If there are events, cite at least the most important one with its time.
+- If there is pending shopping, mention examples of concrete items, not just the total count.
+- If there are planned meals, say which ones.
+- If something is empty, do not mention it.
+- Do not use marketing tone.
+- Do not invent data.
+Return only plain text.`;
 
-    const userMessage = `Resume esta jornada doméstica:
-Fecha: ${input.dateLabel}
-Eventos: ${input.events.length ? input.events.map((e) => `${e.time} ${e.title}${e.assignedTo ? ` (${e.assignedTo})` : ''}`).join('; ') : 'ninguno'}
-Tareas del hogar: ${input.chores.length ? input.chores.map((c) => `${c.title} [${c.status}]${c.assignedTo ? ` (${c.assignedTo})` : ''}`).join('; ') : 'ninguna'}
-Comidas previstas: ${input.mealDetails.length ? input.mealDetails.map((m) => `${m.mealType}: ${m.value}`).join('; ') : 'ninguna'}
-Tareas atrasadas de proyectos: ${input.overdueTasks.length ? input.overdueTasks.map((t) => `${t.title} (${t.project})`).join('; ') : 'ninguna'}
-Artículos pendientes en compra: ${input.shoppingPendingCount}
-Ejemplos de compra pendiente: ${input.shoppingItems.length ? input.shoppingItems.map((item) => `${item.name}${item.quantity ? ` (${item.quantity}${item.unit ? ` ${item.unit}` : ''})` : ''}${item.listName ? ` en ${item.listName}` : ''}`).join('; ') : 'ninguno'}
-Puntos que requieren atención: ${input.attentionItems.length ? input.attentionItems.map((item) => `${item.title}: ${item.hint}`).join('; ') : 'ninguno'}
+    const userMessage = `Summarize this household day:
+Date: ${input.dateLabel}
+Events: ${input.events.length ? input.events.map((e) => `${e.time} ${e.title}${e.assignedTo ? ` (${e.assignedTo})` : ''}`).join('; ') : 'none'}
+Household chores: ${input.chores.length ? input.chores.map((c) => `${c.title} [${c.status}]${c.assignedTo ? ` (${c.assignedTo})` : ''}`).join('; ') : 'none'}
+Planned meals: ${input.mealDetails.length ? input.mealDetails.map((m) => `${m.mealType}: ${m.value}`).join('; ') : 'none'}
+Overdue project tasks: ${input.overdueTasks.length ? input.overdueTasks.map((t) => `${t.title} (${t.project})`).join('; ') : 'none'}
+Pending shopping items: ${input.shoppingPendingCount}
+Pending shopping examples: ${input.shoppingItems.length ? input.shoppingItems.map((item) => `${item.name}${item.quantity ? ` (${item.quantity}${item.unit ? ` ${item.unit}` : ''})` : ''}${item.listName ? ` in ${item.listName}` : ''}`).join('; ') : 'none'}
+Items needing attention: ${input.attentionItems.length ? input.attentionItems.map((item) => `${item.title}: ${item.hint}`).join('; ') : 'none'}
 `;
 
     const controller = new AbortController();
@@ -581,7 +589,7 @@ Puntos que requieren atención: ${input.attentionItems.length ? input.attentionI
         throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
       }
 
-      const data = await response.json() as any;
+      const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
       return String(data.choices?.[0]?.message?.content || '').trim();
     } catch (error: any) {
       if (error?.name === 'AbortError') {

@@ -1,50 +1,58 @@
-import { Router, Response } from 'express';
+import { Response } from 'express';
 import { z } from 'zod';
 import pool from '../db/pool';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { sendError } from '../lib/api-error';
+import { addDays, parseDateString, startOfDay, startOfWeek, toDateString } from '../lib/dates';
+import { isHouseholdMember, requireHousehold } from '../lib/household';
+import { createSafeRouter } from '../lib/router';
 import { sendPushNotification } from '../services/push.service';
 
-const router = Router();
+const router = createSafeRouter();
 router.use(authMiddleware);
+router.use(requireHousehold);
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_GENERATED_DAYS = 120;
 
 const TemplateSchema = z.object({
-    title: z.string().min(1),
-    description: z.string().optional(),
-    location: z.string().optional(),
+    title: z.string().trim().min(1).max(200),
+    description: z.string().trim().max(2000).optional(),
+    location: z.string().trim().max(200).optional(),
     default_assignee_user_id: z.string().uuid().nullable().optional(),
     recurrence_type: z.enum(['daily', 'weekly', 'monthly']).default('weekly'),
     recurrence_days: z.array(z.number().int().min(0).max(6)).default([1]),
     recurrence_interval: z.number().int().min(1).default(1),
-    start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    start_date: z.string().regex(DATE_PATTERN).optional(),
     points: z.number().int().min(0).default(1),
 });
 
-async function isHouseholdMember(userId: string, householdId: string) {
-    const { rows } = await pool.query(
-        'SELECT 1 FROM memberships WHERE user_id = $1 AND household_id = $2',
-        [userId, householdId]
-    );
-    return rows.length > 0;
-}
+router.param('id', (req, res, next, id) => {
+    if (z.string().uuid().safeParse(id).success) {
+        next();
+        return;
+    }
+    sendError(res, 404, 'NOT_FOUND', 'Chore not found.');
+});
 
 // Generate chore instances for a template in next N days
-async function generateInstances(templateId: string, days = 30) {
-    const { rows: [t] } = await pool.query('SELECT * FROM chore_templates WHERE id=$1', [templateId]);
+async function generateInstances(templateId: string, days = 30, householdId?: string) {
+    const { rows: [t] } = await pool.query(
+        `SELECT * FROM chore_templates WHERE id = $1${householdId ? ' AND household_id = $2' : ''}`,
+        householdId ? [templateId, householdId] : [templateId]
+    );
     if (!t || !t.is_active) return;
-    
-    // Default to today if start_date is somehow missing
-    const startDate = new Date(t.start_date || new Date().toISOString().split('T')[0]);
-    startDate.setHours(0, 0, 0, 0);
 
-    for (let i = 0; i < days; i++) {
-        const d = new Date();
-        d.setDate(d.getDate() + i);
-        d.setHours(0, 0, 0, 0);
+    const today = startOfDay(new Date());
+    const startDate = startOfDay(t.start_date ? parseDateString(String(t.start_date)) : today);
+    const limit = Math.min(days, MAX_GENERATED_DAYS);
 
-        if (d < startDate) continue; // Skip dates before start_date
+    for (let i = 0; i < limit; i++) {
+        const d = addDays(today, i);
+        if (d < startDate) continue;
 
         const dow = d.getDay();
-        const dateStr = d.toISOString().split('T')[0];
+        const dateStr = toDateString(d);
 
         let shouldCreate = false;
         
@@ -80,6 +88,21 @@ async function generateInstances(templateId: string, days = 30) {
     }
 }
 
+// Instances are generated lazily so a template that was created weeks ago
+// still has entries for the range the calendar is asking for.
+async function ensureInstancesForRange(householdId: string, end: string) {
+    const days = Math.ceil((parseDateString(end).getTime() - startOfDay(new Date()).getTime()) / 86_400_000) + 1;
+    if (days <= 0) return;
+
+    const { rows } = await pool.query(
+        'SELECT id FROM chore_templates WHERE household_id = $1 AND is_active = TRUE',
+        [householdId]
+    );
+    for (const template of rows) {
+        await generateInstances(template.id, days, householdId);
+    }
+}
+
 // Get all templates
 router.get('/templates', async (req: AuthRequest, res: Response) => {
     const { rows } = await pool.query(
@@ -94,12 +117,15 @@ router.get('/templates', async (req: AuthRequest, res: Response) => {
 // Create template
 router.post('/templates', async (req: AuthRequest, res: Response) => {
     const parsed = TemplateSchema.safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Chore data is not valid.', parsed.error.flatten());
+        return;
+    }
     const d = parsed.data;
     if (d.default_assignee_user_id) {
         const isMember = await isHouseholdMember(d.default_assignee_user_id, req.user!.householdId!);
         if (!isMember) {
-            res.status(400).json({ error: 'Assignee must belong to the household' });
+            sendError(res, 400, 'VALIDATION_ERROR', 'Assigned user does not belong to the household.');
             return;
         }
     }
@@ -110,28 +136,30 @@ router.post('/templates', async (req: AuthRequest, res: Response) => {
         d.default_assignee_user_id ?? null, d.recurrence_type, d.recurrence_days, d.points, d.recurrence_interval, d.start_date || null]
     );
     const template = rows[0];
-    await generateInstances(template.id);
+    await generateInstances(template.id, 30, req.user!.householdId!);
     res.status(201).json(template);
 
-    // Send push notification if a default assignee is set
     if (d.default_assignee_user_id && d.default_assignee_user_id !== req.user!.id) {
-        sendPushNotification(d.default_assignee_user_id, {
-            title: 'Nueva tarea del hogar',
-            body: `${req.user!.name} te ha asignado la tarea interactiva: ${d.title}`,
+        void sendPushNotification(d.default_assignee_user_id, {
+            title: 'New household chore',
+            body: `${req.user!.name} assigned you the chore: ${d.title}`,
             url: '/chores'
-        });
+        }).catch((error) => console.error('Chore push failed:', error));
     }
 });
 
 // Update template
 router.put('/templates/:id', async (req: AuthRequest, res: Response) => {
     const parsed = TemplateSchema.partial().safeParse(req.body);
-    if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Chore data is not valid.', parsed.error.flatten());
+        return;
+    }
     const d = parsed.data;
     if (d.default_assignee_user_id) {
         const isMember = await isHouseholdMember(d.default_assignee_user_id, req.user!.householdId!);
         if (!isMember) {
-            res.status(400).json({ error: 'Assignee must belong to the household' });
+            sendError(res, 400, 'VALIDATION_ERROR', 'Assigned user does not belong to the household.');
             return;
         }
     }
@@ -149,33 +177,47 @@ router.put('/templates/:id', async (req: AuthRequest, res: Response) => {
     );
     const template = rows[0];
     if (!template) {
-        res.status(404).json({ error: 'Template not found' });
+        sendError(res, 404, 'NOT_FOUND', 'Chore not found.');
         return;
     }
+    await generateInstances(template.id, 30, req.user!.householdId!);
     res.json(template);
 
-    // Send push notification if assignment changed
     if (d.default_assignee_user_id && d.default_assignee_user_id !== req.user!.id) {
-        sendPushNotification(d.default_assignee_user_id, {
-            title: 'Tarea del hogar actualizada',
-            body: `${req.user!.name} ha actualizado o te ha asignado: ${template.title}`,
+        void sendPushNotification(d.default_assignee_user_id, {
+            title: 'Household chore updated',
+            body: `${req.user!.name} updated or assigned you: ${template.title}`,
             url: '/chores'
-        });
+        }).catch((error) => console.error('Chore push failed:', error));
     }
 });
 
 // Delete template
 router.delete('/templates/:id', async (req: AuthRequest, res: Response) => {
-    await pool.query(
+    const { rowCount } = await pool.query(
         `DELETE FROM chore_templates WHERE id=$1 AND household_id=$2`,
         [req.params.id, req.user!.householdId]
     );
+    if (rowCount === 0) {
+        sendError(res, 404, 'NOT_FOUND', 'Chore not found.');
+        return;
+    }
     res.json({ ok: true });
 });
 
 // Get instances in a date range
 router.get('/instances', async (req: AuthRequest, res: Response) => {
-    const { start, end } = req.query;
+    const start = typeof req.query.start === 'string' ? req.query.start : undefined;
+    const end = typeof req.query.end === 'string' ? req.query.end : undefined;
+    if ((start || end) && !(start && end && DATE_PATTERN.test(start) && DATE_PATTERN.test(end))) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Date range is not valid.');
+        return;
+    }
+
+    if (end) {
+        await ensureInstancesForRange(req.user!.householdId!, end);
+    }
+
     let query = `SELECT ci.*, ct.title, ct.location, ct.points,
                 u.name AS assigned_name, u.color AS assigned_color
                FROM chore_instances ci
@@ -204,7 +246,7 @@ router.delete('/instances/:id', async (req: AuthRequest, res: Response) => {
     );
 
     if (!instance || instance.household_id !== req.user!.householdId) {
-        res.status(404).json({ error: 'Instance not found' });
+        sendError(res, 404, 'NOT_FOUND', 'Chore instance not found.');
         return;
     }
 
@@ -226,21 +268,22 @@ router.delete('/instances/:id', async (req: AuthRequest, res: Response) => {
 
 // Update instance status
 router.patch('/instances/:id/status', async (req: AuthRequest, res: Response) => {
-    const { status } = req.body;
-    if (!['pending', 'done', 'skipped'].includes(status)) {
-        res.status(400).json({ error: 'Invalid status' }); return;
+    const parsed = z.object({ status: z.enum(['pending', 'done', 'skipped']) }).safeParse(req.body);
+    if (!parsed.success) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Chore status is not valid.');
+        return;
     }
-    const completedAt = status === 'done' ? new Date().toISOString() : null;
+    const { status } = parsed.data;
     const { rows } = await pool.query(
         `UPDATE chore_instances ci
-         SET status=$1, completed_at=$2
+         SET status=$1, completed_at = CASE WHEN $1 = 'done' THEN NOW() ELSE NULL END
          FROM chore_templates ct
-         WHERE ci.id=$3 AND ci.template_id = ct.id AND ct.household_id = $4
+         WHERE ci.id=$2 AND ci.template_id = ct.id AND ct.household_id = $3
          RETURNING ci.*`,
-        [status, completedAt, req.params.id, req.user!.householdId]
+        [status, req.params.id, req.user!.householdId]
     );
     if (rows.length === 0) {
-        res.status(404).json({ error: 'Instance not found' });
+        sendError(res, 404, 'NOT_FOUND', 'Chore instance not found.');
         return;
     }
     res.json(rows[0]);
@@ -248,7 +291,15 @@ router.patch('/instances/:id/status', async (req: AuthRequest, res: Response) =>
 
 // Get weekly stats
 router.get('/stats', async (req: AuthRequest, res: Response) => {
-    const { start, end } = req.query;
+    const rawStart = typeof req.query.start === 'string' ? req.query.start : undefined;
+    const rawEnd = typeof req.query.end === 'string' ? req.query.end : undefined;
+    if ((rawStart || rawEnd) && !(rawStart && rawEnd && DATE_PATTERN.test(rawStart) && DATE_PATTERN.test(rawEnd))) {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Date range is not valid.');
+        return;
+    }
+    const weekStart = startOfWeek(new Date());
+    const start = rawStart ?? toDateString(weekStart);
+    const end = rawEnd ?? toDateString(addDays(weekStart, 6));
     const { rows } = await pool.query(
         `SELECT u.id, u.name, u.color,
        COUNT(*) FILTER (WHERE ci.status='done') AS completed,

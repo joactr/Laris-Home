@@ -6,6 +6,8 @@ export type ApiErrorCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'CONFLICT'
+  | 'DUPLICATE_ITEM'
+  | 'PAYLOAD_TOO_LARGE'
   | 'RATE_LIMITED'
   | 'OFFLINE_UNAVAILABLE'
   | 'VALIDATION_ERROR'
@@ -44,5 +46,5 @@ export function sendError(
 }
 
 export function fromZodError(details: unknown) {
-  return new ApiError(400, 'VALIDATION_ERROR', 'La solicitud no es valida.', details);
+  return new ApiError(400, 'VALIDATION_ERROR', 'The request is not valid.', details);
 }

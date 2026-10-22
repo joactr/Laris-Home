@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: larishome
+          POSTGRES_USER: larishome
+          POSTGRES_PASSWORD: larishome
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U larishome -d larishome"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:unit
+        env:
+          JWT_SECRET: test-secret
+          DATABASE_URL: postgres://larishome:larishome@localhost:5432/larishome
+      - run: npm run migrate
+        env:
+          JWT_SECRET: test-secret
+          DATABASE_URL: postgres://larishome:larishome@localhost:5432/larishome
+      - run: npm test
+        env:
+          JWT_SECRET: test-secret
+          DATABASE_URL: postgres://larishome:larishome@localhost:5432/larishome
+
+  client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build

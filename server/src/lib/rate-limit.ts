@@ -27,6 +27,13 @@ function getClientKey(req: Request) {
 
 function getBucket(key: string, windowMs: number) {
   const now = Date.now();
+
+  if (buckets.size > 10_000) {
+    for (const [bucketKey, bucket] of buckets) {
+      if (bucket.resetAt <= now) buckets.delete(bucketKey);
+    }
+  }
+
   const current = buckets.get(key);
 
   if (!current || current.resetAt <= now) {
