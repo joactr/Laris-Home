@@ -14,9 +14,8 @@ import './Recipes.css';
 function metaLine(recipe: RecipeRecord): string {
   const parts: string[] = [];
   if (recipe.servings) parts.push(t(recipe.servings === 1 ? 'rec.servingsOne' : 'rec.servingsMany', recipe.servings));
-  const mins = (recipe.prep_time_minutes || 0) + (recipe.cook_time_minutes || 0);
   if (recipe.calories_per_serving) parts.push(`${recipe.calories_per_serving} kcal`);
-  return parts.join(' · ');
+  return parts.join(', ');
 }
 
 function Stars({ value, onChange }: { value: number | null; onChange: (next: number | null) => void }) {

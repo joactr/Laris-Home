@@ -150,14 +150,6 @@ button.today-row:hover {
   color: var(--text-primary);
 }
 
-.today-dot {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-full);
-  background: var(--accent);
-}
-
 .today-row-main {
   flex: 1;
   min-width: 0;
@@ -242,6 +234,20 @@ button.today-row:hover {
   width: 74%;
 }
 
+@media (max-width: 960px) {
+  .today-actions {
+    order: 3;
+  }
+
+  .today-error {
+    order: 1;
+  }
+
+  .today-grid {
+    order: 2;
+  }
+}
+
 @media (min-width: 961px) {
   .today-grid {
     display: grid;
@@ -253,6 +259,7 @@ button.today-row:hover {
   .today-actions {
     display: flex;
     flex-wrap: wrap;
+    order: 0;
   }
 
   .today-actions .btn {

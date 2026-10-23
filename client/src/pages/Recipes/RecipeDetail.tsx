@@ -174,7 +174,7 @@ export default function RecipeDetail() {
                 <h1>{recipe.title}</h1>
             </div>
             {recipe.description ? <p className="recipe-detail-meta">{recipe.description}</p> : null}
-            {metaParts.length > 0 ? <p className="recipe-detail-meta">{metaParts.join(' · ')}</p> : null}
+            {metaParts.length > 0 ? <p className="recipe-detail-meta">{metaParts.join(', ')}</p> : null}
             {tags ? <p className="recipe-detail-tags">{tags}</p> : null}
 
             {recipe.image_url ? (

@@ -60,7 +60,16 @@ function ensureAssignableUser(userId: string | null | undefined, householdId: st
 // Projects CRUD
 router.get('/', async (req: AuthRequest, res: Response) => {
     const { rows } = await pool.query(
-        'SELECT * FROM projects WHERE household_id=$1 ORDER BY status, name',
+        `SELECT p.*,
+                COUNT(t.id)::int AS task_count,
+                COUNT(t.id) FILTER (WHERE t.status <> 'done')::int AS open_tasks,
+                COUNT(t.id) FILTER (WHERE t.status = 'done')::int AS done_tasks,
+                MIN(t.due_date) FILTER (WHERE t.status <> 'done') AS next_due_date
+         FROM projects p
+         LEFT JOIN tasks t ON t.project_id = p.id
+         WHERE p.household_id=$1
+         GROUP BY p.id
+         ORDER BY p.status, p.name`,
         [req.user!.householdId]
     );
     res.json(rows);

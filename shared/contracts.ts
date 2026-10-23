@@ -156,6 +156,10 @@ export type ProjectSummary = {
   name: string;
   description?: string | null;
   status: ProjectStatus;
+  task_count?: number;
+  open_tasks?: number;
+  done_tasks?: number;
+  next_due_date?: string | null;
   created_at?: string;
   updated_at?: string;
 };

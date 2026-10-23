@@ -48,7 +48,7 @@ function itemMeta(item: ShoppingItem): string {
   if (item.category) parts.push(item.category);
   if (item.pending_sync) parts.push(t('shopping.offlinePending'));
   if (item.sync_error) parts.push(t('shopping.offlineError'));
-  return parts.join(' · ');
+  return parts.join(', ');
 }
 
 export default function Shopping() {
@@ -300,7 +300,7 @@ export default function Shopping() {
               <span>{t('shopUi.buyAgain')}</span>
               {buyAgain.slice(0, 5).map((suggestion) => (
                 <button
-                  key={suggestion.normalized_name}
+                  key={suggestion.normalized_name || suggestion.name}
                   type="button"
                   className="shopping-suggest-btn"
                   onClick={() => void addSmartItem({

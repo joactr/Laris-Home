@@ -54,8 +54,24 @@
   font-size: 0.85rem;
 }
 
-.meals-day-cart {
+.meals-add-select {
   margin-left: auto;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.meals-add-select:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.meals-day-cart {
+  margin-left: 0;
   color: var(--text-muted);
 }
 
@@ -66,6 +82,10 @@
   }
 
   .meals-day-cart {
+    min-height: 40px;
+  }
+
+  .meals-add-select {
     min-height: 40px;
   }
 }
@@ -169,13 +189,6 @@
   flex-shrink: 0;
   color: var(--text-muted);
   min-width: 40px;
-  min-height: 40px;
-}
-
-.meals-add {
-  align-self: flex-start;
-  justify-self: start;
-  color: var(--text-muted);
   min-height: 40px;
 }
 

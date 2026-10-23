@@ -47,6 +47,12 @@ type TaskFormState = {
     due_date: string;
 };
 
+function projectProgress(project: ProjectSummary): string | null {
+    if (project.task_count == null) return null;
+    if (project.task_count === 0) return t('projUi.noTasks');
+    return t('projUi.progress', project.done_tasks ?? 0, project.task_count);
+}
+
 function ProjectList() {
     const [projects, setProjects] = useState<ProjectSummary[]>([]);
     const [showModal, setShowModal] = useState(false);
@@ -98,7 +104,9 @@ function ProjectList() {
             />
             {active.length > 0 && (
                 <ul className="projects-list">
-                    {active.map(p => (
+                    {active.map((p) => {
+                        const progress = projectProgress(p);
+                        return (
                         <li key={p.id} className="projects-row">
                             <button
                                 type="button"
@@ -107,6 +115,7 @@ function ProjectList() {
                             >
                                 <span className="projects-row-name">{p.name}</span>
                                 {p.description && <span className="projects-row-desc">{p.description}</span>}
+                                {progress ? <span className="projects-row-progress">{progress}</span> : null}
                             </button>
                             <button
                                 className="icon-button"
@@ -116,7 +125,8 @@ function ProjectList() {
                                 <Icon name="archive" size={18} aria-hidden="true" />
                             </button>
                         </li>
-                    ))}
+                        );
+                    })}
                 </ul>
             )}
             {active.length === 0 && (
@@ -125,7 +135,9 @@ function ProjectList() {
             {archived.length > 0 && (
                 <section aria-label={t('projects.archivedTitle')}>
                     <ul className="projects-list">
-                        {archived.map(p => (
+                        {archived.map((p) => {
+                            const progress = projectProgress(p);
+                            return (
                             <li key={p.id} className="projects-row projects-row--archived">
                                 <button
                                     type="button"
@@ -134,6 +146,7 @@ function ProjectList() {
                                 >
                                     <span className="projects-row-name">{p.name}</span>
                                     {p.description && <span className="projects-row-desc">{p.description}</span>}
+                                    {progress ? <span className="projects-row-progress">{progress}</span> : null}
                                 </button>
                                 <button
                                     className="icon-button"
@@ -143,7 +156,8 @@ function ProjectList() {
                                     <Icon name="undo" size={18} aria-hidden="true" />
                                 </button>
                             </li>
-                        ))}
+                            );
+                        })}
                     </ul>
                 </section>
             )}

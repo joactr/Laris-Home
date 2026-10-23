@@ -73,6 +73,7 @@ body,
 
 html {
   color-scheme: dark;
+  overflow-x: clip;
 }
 
 body {
@@ -887,7 +888,7 @@ img {
 
 .input:focus-visible {
   border-color: var(--accent);
-  box-shadow: none;
+  box-shadow: var(--focus-ring);
 }
 
 .input::placeholder {
@@ -1544,4 +1545,15 @@ textarea.input {
 .bottom-sheet-footer .lang-switch {
   align-self: stretch;
   justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
 }

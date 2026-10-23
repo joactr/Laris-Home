@@ -46,7 +46,7 @@ The UI is available in English and Spanish (switch in the sidebar).
 
 ![Calendar](docs/screenshots/calendar.png)
 
-**Meal plan.** A full week with kcal per day and a shortcut to send a day's ingredients to the shopping list.
+**Meal plan.** A full week with a shortcut to send a day's ingredients to the shopping list.
 
 ![Meal plan](docs/screenshots/meals.png)
 

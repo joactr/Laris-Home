@@ -302,9 +302,20 @@ export default function Meals() {
                 {dayItems.length ? (
                   <span className="meals-day-meta">
                     {dayItems.length === 1 ? t('mealsUi.mealsCountOne', dayItems.length) : t('mealsUi.mealsCountMany', dayItems.length)}
-                    {totalKcal > 0 ? ` · ${Math.round(totalKcal)} kcal` : ''}
+                    {totalKcal > 0 ? `, ${Math.round(totalKcal)} kcal` : ''}
                   </span>
                 ) : null}
+                <select
+                  className="meals-add-select"
+                  aria-label={t('mealsUi.addMeal')}
+                  value=""
+                  onChange={(e) => startAddNew(dateStr, e.target.value as MealType)}
+                >
+                  <option value="" disabled>{t('mealsUi.addMeal')}</option>
+                  {MEAL_TYPES.map((type) => (
+                    <option key={type} value={type}>{t(`meals.${type}`)}</option>
+                  ))}
+                </select>
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm meals-day-cart"
@@ -323,7 +334,7 @@ export default function Meals() {
                 {MEAL_TYPES.map((type: MealType) => {
                   const typeItems = dayItems.filter((item) => item.meal_type === type);
                   const isEditingHere = editingNew?.date === dateStr && editingNew?.type === type;
-                  const slotLabel = t(`meals.${type}`).toLowerCase();
+                  if (!typeItems.length && !isEditingHere) return null;
 
                   return (
                     <div key={type} className="meals-slot">
@@ -463,17 +474,7 @@ export default function Meals() {
                             </div>
                           ) : null}
                         </div>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm meals-add"
-                          aria-label={t('mealsUi.addSlot', slotLabel, weekday)}
-                          onClick={() => startAddNew(dateStr, type)}
-                        >
-                          <Icon name="plus" size={16} />
-                          {t('common.add')}
-                        </button>
-                      )}
+                      ) : null}
                     </div>
                   );
                 })}
@@ -573,10 +574,10 @@ export default function Meals() {
                             <strong>{item.name}</strong>
                             <p>
                               {item.quantity != null ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : t('mealsUi.noQuantity')}
-                              {' · '}{item.sources.length === 1 ? t('mealsUi.sourcesOne', item.sources.length) : t('mealsUi.sourcesMany', item.sources.length)}
+                              {', '}{item.sources.length === 1 ? t('mealsUi.sourcesOne', item.sources.length) : t('mealsUi.sourcesMany', item.sources.length)}
                             </p>
                             <p className="meals-preview-muted">
-                              {item.sources.slice(0, 3).map((source) => `${source.recipeTitle} (${source.date})`).join(' · ')}
+                              {item.sources.slice(0, 3).map((source) => `${source.recipeTitle} (${source.date})`).join(', ')}
                             </p>
                             {item.candidates.length ? (
                               <p className="meals-preview-muted">{t('mealsUi.activeDuplicate', `${item.candidates[0].name}${item.candidates[0].quantity ? ` (${item.candidates[0].quantity}${item.candidates[0].unit ? ` ${item.candidates[0].unit}` : ''})` : ''}`)}</p>

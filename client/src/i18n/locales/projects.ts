@@ -7,6 +7,8 @@ export const es: Record<string, string> = {
   'projUi.addTaskCol': 'Añadir tarea',
   'projUi.tasksCountOne': '{{0}} tarea',
   'projUi.tasksCountMany': '{{0}} tareas',
+  'projUi.progress': '{{0}} de {{1}} hechas',
+  'projUi.noTasks': 'Sin tareas',
 };
 export const en: Record<string, string> = {
   'projUi.emptyActive': 'No active projects. Create the first one with "New project".',
@@ -17,4 +19,6 @@ export const en: Record<string, string> = {
   'projUi.addTaskCol': 'Add task',
   'projUi.tasksCountOne': '{{0}} task',
   'projUi.tasksCountMany': '{{0}} tasks',
+  'projUi.progress': '{{0}} of {{1}} done',
+  'projUi.noTasks': 'No tasks',
 };

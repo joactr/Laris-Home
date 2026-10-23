@@ -52,6 +52,12 @@
   font-size: 0.85rem;
 }
 
+.projects-row-progress {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .projects-row--archived .projects-row-name {
   color: var(--text-secondary);
   font-weight: 500;

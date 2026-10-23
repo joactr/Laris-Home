@@ -181,11 +181,11 @@ export default function Dashboard() {
       </section>
 
       <nav className="today-actions" aria-label={t('dash.quickActions')}>
-        {QUICK_ACTIONS.map((action) => (
+        {QUICK_ACTIONS.map((action, index) => (
           <button
             key={action.path}
             type="button"
-            className="btn btn-secondary"
+            className={`btn ${index === 0 ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => navigate(action.path)}
           >
             {t(action.key)}
@@ -222,11 +222,6 @@ export default function Dashboard() {
                     <li key={event.id}>
                       <button type="button" className="today-row" onClick={() => navigate('/calendar')}>
                         <span className="today-time">{format(new Date(event.start_datetime), 'HH:mm')}</span>
-                        <span
-                          className="today-dot"
-                          aria-hidden="true"
-                          style={event.created_by_color ? { backgroundColor: event.created_by_color } : undefined}
-                        />
                         <span className="today-row-main">
                           <span className="today-row-title">{event.title}</span>
                           <span className="today-row-sub">
@@ -240,11 +235,6 @@ export default function Dashboard() {
                   {chores.map((chore) => (
                     <li key={chore.id}>
                       <button type="button" className="today-row" onClick={() => navigate('/calendar')}>
-                        <span
-                          className="today-dot"
-                          aria-hidden="true"
-                          style={chore.assigned_color ? { backgroundColor: chore.assigned_color } : undefined}
-                        />
                         <span className="today-row-main">
                           <span className="today-row-title">{chore.title}</span>
                           <span className="today-row-sub">

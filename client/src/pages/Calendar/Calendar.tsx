@@ -457,17 +457,20 @@ export default function Calendar() {
                   ...dayEvents.map((event) => ({
                     id: `event-${event.id}`,
                     label: event.title,
-                    tone: event.category || 'shared',
                     done: false,
                   })),
                   ...dayChores.map((chore) => ({
                     id: `chore-${chore.id}`,
                     label: chore.title,
-                    tone: chore.status === 'done' ? 'done' : 'pending',
                     done: chore.status === 'done',
                   })),
                 ].slice(0, 3);
                 const extraCount = dayEvents.length + dayChores.length - visible.length;
+                const itemCount = dayEvents.length + dayChores.length;
+                const dayLabel = format(day, dateFormats.weekdayDayMonth(), { locale: dateLocale() });
+                const dayAria = itemCount
+                  ? `${dayLabel}, ${t(itemCount === 1 ? 'cal.itemsOne' : 'cal.itemsMany', itemCount)}`
+                  : dayLabel;
 
                 return (
                   <button
@@ -475,19 +478,19 @@ export default function Calendar() {
                     type="button"
                     className={`cal-cell ${isSameMonth(day, currentMonth) ? '' : 'outside'} ${isSameDay(day, selectedDate) ? 'selected' : ''} ${isToday(day) ? 'today' : ''}`.trim()}
                     onClick={() => setSelectedDate(day)}
-                    aria-label={format(day, dateFormats.weekdayDayMonth(), { locale: dateLocale() })}
+                    aria-label={dayAria}
                     aria-pressed={isSameDay(day, selectedDate)}
                   >
                     <span className="cal-date">{format(day, 'd')}</span>
                     <span className="cal-items">
                       {visible.map((item) => (
                         <span key={item.id} className={`cal-item ${item.done ? 'done' : ''}`}>
-                          <span className={`cal-item-dot ${item.tone}`} aria-hidden="true" />
                           <span className="cal-item-label">{item.label}</span>
                         </span>
                       ))}
                       {extraCount > 0 ? <span className="cal-more">{t('cal.more', extraCount)}</span> : null}
                     </span>
+                    {itemCount > 0 ? <span className="cal-cell-count" aria-hidden="true">{itemCount}</span> : null}
                   </button>
                 );
               })}
@@ -500,7 +503,7 @@ export default function Calendar() {
             <>
               <h2>{format(selectedDate, dateFormats.weekdayDayMonth(), { locale: dateLocale() })}</h2>
               <p className="cal-day-counts">
-                {t(selectedDayEvents.length === 1 ? 'cal.eventsOne' : 'cal.eventsMany', selectedDayEvents.length)} · {t(selectedDayChores.length === 1 ? 'cal.choresOne' : 'cal.choresMany', selectedDayChores.length)}
+                {t(selectedDayEvents.length === 1 ? 'cal.eventsOne' : 'cal.eventsMany', selectedDayEvents.length)}, {t(selectedDayChores.length === 1 ? 'cal.choresOne' : 'cal.choresMany', selectedDayChores.length)}
               </p>
             </>
           )}
@@ -626,7 +629,7 @@ export default function Calendar() {
                         {stat.name}
                       </span>
                       <span className="cal-rank-points">
-                        {t((stat.completed ?? 0) === 1 ? 'cal.doneOne' : 'cal.doneMany', stat.completed ?? 0)} · {t((stat.points ?? 0) === 1 ? 'cal.pointsOne' : 'cal.pointsMany', stat.points ?? 0)}
+                        {t((stat.completed ?? 0) === 1 ? 'cal.doneOne' : 'cal.doneMany', stat.completed ?? 0)}, {t((stat.points ?? 0) === 1 ? 'cal.pointsOne' : 'cal.pointsMany', stat.points ?? 0)}
                       </span>
                     </li>
                   ))}

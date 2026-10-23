@@ -173,7 +173,7 @@ export default function AdminUsersPage() {
                 </span>
                 <div className="admin-copy">
                   <strong>{member.name}</strong>
-                  <span>{member.username} · {member.role === 'admin' || member.is_admin ? t('admin.adminRole') : t('admin.memberRole')}</span>
+                  <span>{member.username}, {member.role === 'admin' || member.is_admin ? t('admin.adminRole') : t('admin.memberRole')}</span>
                 </div>
                 <button className="btn btn-secondary btn-sm" type="button" onClick={() => openPasswordModal(member.id)}>
                   {t('admin.changePassword')}
