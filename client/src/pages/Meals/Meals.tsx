@@ -62,12 +62,12 @@ function errMsg(err: unknown): string {
 
 
 function formatWeekRange(start: Date, end: Date): string {
-  const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
-  if (sameMonth) return `${format(start, 'd')}–${format(end, 'd MMM yyyy', { locale: dateLocale() })}`;
-  if (start.getFullYear() === end.getFullYear()) {
-    return `${format(start, 'd MMM', { locale: dateLocale() })}–${format(end, 'd MMM yyyy', { locale: dateLocale() })}`;
-  }
-  return `${format(start, 'd MMM yyyy', { locale: dateLocale() })}–${format(end, 'd MMM yyyy', { locale: dateLocale() })}`;
+  const loc = { locale: dateLocale() };
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const sameMonth = sameYear && start.getMonth() === end.getMonth();
+  const head = sameMonth ? 'd' : sameYear ? 'd MMM' : 'd MMM yyyy';
+  const tail = sameYear && end.getFullYear() === new Date().getFullYear() ? 'd MMM' : 'd MMM yyyy';
+  return `${format(start, head, loc)}–${format(end, tail, loc)}`;
 }
 
 export default function Meals() {
@@ -246,34 +246,39 @@ export default function Meals() {
     }
   };
 
+  const isCurrentWeek = isSameDay(weekStart, startOfWeek(new Date(), { weekStartsOn: 1 }));
+
   return (
     <div className="page">
       <SectionHeader
         title={t('page.meals')}
-        subtitle={formatWeekRange(weekStart, weekEnd)}
         actions={
           <div className="meals-actions">
             <div className="meals-week-nav">
               <button type="button" className="icon-button" aria-label={t('mealsUi.prevWeek')} onClick={() => setWeekStart(subWeeks(weekStart, 1))}>
                 <Icon name="chevronLeft" size={20} />
               </button>
+              <span className="meals-range">{formatWeekRange(weekStart, weekEnd)}</span>
               <button type="button" className="icon-button" aria-label={t('mealsUi.nextWeek')} onClick={() => setWeekStart(addWeeks(weekStart, 1))}>
                 <Icon name="chevronRight" size={20} />
               </button>
             </div>
+            {isCurrentWeek ? null : (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}
+              >
+                {t('mealsUi.thisWeek')}
+              </button>
+            )}
             <button
               type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}
-            >
-              {t('mealsUi.thisWeek')}
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
+              className="btn btn-primary"
               onClick={() => void openWeekShoppingModal()}
               disabled={isOffline || !selectedList}
             >
+              <Icon name="cart" size={16} />
               {t('mealsUi.generateList')}
             </button>
           </div>
@@ -281,153 +286,170 @@ export default function Meals() {
       />
 
       <div className="meals-board">
+        <div className="meals-head" aria-hidden="true">
+          <span />
+          {MEAL_TYPES.map((type) => (
+            <span key={type}>{t(`meals.${type}`)}</span>
+          ))}
+          <span />
+        </div>
         {weekDays.map((day) => {
           const dateStr = format(day, 'yyyy-MM-dd');
           const weekday = format(day, 'EEEE', { locale: dateLocale() });
           const dayItems = mealMap[dateStr] || [];
           const isToday = isSameDay(day, new Date());
-          const totalKcal = dayItems.reduce(
-            (acc, item) => acc + (Number(item.calories_per_serving) || 0) * (Number(item.servings) || 1),
-            0
-          );
 
           const dayLabel = format(day, dateFormats.weekdayDayMonth(), { locale: dateLocale() });
           const dayTitle = dayLabel.length ? dayLabel[0].toUpperCase() + dayLabel.slice(1) : dayLabel;
+          const shortDay = format(day, 'EEE', { locale: dateLocale() });
 
           return (
             <section key={dateStr} aria-label={dayTitle} className={`meals-day${isToday ? ' is-today' : ''}`}>
-              <div className="meals-day-head">
-                <h2 className="meals-day-title">{dayTitle}</h2>
-                {isToday ? <span className="status-badge subtle">{t('mealsUi.today')}</span> : null}
-                {dayItems.length ? (
-                  <span className="meals-day-meta">
-                    {dayItems.length === 1 ? t('mealsUi.mealsCountOne', dayItems.length) : t('mealsUi.mealsCountMany', dayItems.length)}
-                    {totalKcal > 0 ? `, ${Math.round(totalKcal)} kcal` : ''}
-                  </span>
-                ) : null}
-                <select
-                  className="meals-add-select"
-                  aria-label={t('mealsUi.addMeal')}
-                  value=""
-                  onChange={(e) => startAddNew(dateStr, e.target.value as MealType)}
-                >
-                  <option value="" disabled>{t('mealsUi.addMeal')}</option>
-                  {MEAL_TYPES.map((type) => (
-                    <option key={type} value={type}>{t(`meals.${type}`)}</option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm meals-day-cart"
-                  aria-label={t('mealsUi.addDayToShopping', weekday)}
-                  onClick={() => {
-                    setShowShoppingModal({ date: dateStr, meal: '' });
-                    setIngredientText('');
-                  }}
-                >
-                  <Icon name="cart" size={16} />
-                  {t('mealsUi.toShopping')}
-                </button>
-              </div>
+              <h2 className="meals-day-name" aria-current={isToday ? 'date' : undefined}>
+                <span>{shortDay.length ? shortDay[0].toUpperCase() + shortDay.slice(1) : shortDay}</span>
+                <span className="meals-day-num">{format(day, 'd')}</span>
+              </h2>
 
-              <div className="meals-slots">
-                {MEAL_TYPES.map((type: MealType) => {
-                  const typeItems = dayItems.filter((item) => item.meal_type === type);
-                  const isEditingHere = editingNew?.date === dateStr && editingNew?.type === type;
-                  if (!typeItems.length && !isEditingHere) return null;
+              <button
+                type="button"
+                className="btn-icon meals-day-cart"
+                aria-label={t('mealsUi.addDayToShopping', weekday)}
+                title={t('mealsUi.addDayToShopping', weekday)}
+                onClick={() => {
+                  setShowShoppingModal({ date: dateStr, meal: '' });
+                  setIngredientText('');
+                }}
+              >
+                <Icon name="cart" size={18} />
+              </button>
 
+              {MEAL_TYPES.map((type: MealType) => {
+                const typeItems = dayItems.filter((item) => item.meal_type === type);
+                const isEditingHere = editingNew?.date === dateStr && editingNew?.type === type;
+                const typeName = t(`meals.${type}`);
+                const addLabel = t('mealsUi.addMealAt', typeName, weekday);
+
+                if (!typeItems.length && !isEditingHere) {
                   return (
-                    <div key={type} className="meals-slot">
-                      <span className="meals-slot-name">{t(`meals.${type}`)}</span>
+                    <div key={type} className="meals-cell is-empty">
+                      <button
+                        type="button"
+                        className="meals-add"
+                        aria-label={addLabel}
+                        title={addLabel}
+                        onClick={() => startAddNew(dateStr, type)}
+                      >
+                        <Icon name="plus" size={16} />
+                        <span className="meals-add-text">{typeName}</span>
+                      </button>
+                    </div>
+                  );
+                }
 
-                      {typeItems.map((item) => {
+                return (
+                  <div key={type} className="meals-cell is-filled">
+                    <span className="meals-cell-type">{typeName}</span>
+                    <div className="meals-cell-body">
+                      {typeItems.map((item, index) => {
                         const title = item.recipe_title || item.text_content || '';
                         const textEditorActive = editingItem?.id === item.id && editingItem?.field === 'text';
                         const servingsEditorActive = editingItem?.id === item.id && editingItem?.field === 'servings';
                         const servings = Number(item.servings) || 1;
-                        const kcal = Math.round((Number(item.calories_per_serving) || 0) * servings);
-                        const protein = Math.round((Number(item.protein_per_serving) || 0) * servings);
+                        const servingsLabel = servings === 1 ? t('mealsUi.servingsOne', servings) : t('mealsUi.servingsMany', servings);
 
                         return (
                           <div key={item.id} className="meals-item">
-                            <div className="meals-item-main">
-                              {textEditorActive ? (
+                            {textEditorActive ? (
+                              <input
+                                autoFocus
+                                className="input"
+                                aria-label={title}
+                                value={String(editingItem?.val ?? '')}
+                                onChange={(e) =>
+                                  setEditingItem((current) => (current ? { ...current, val: e.target.value } : current))
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') void saveItemUpdate();
+                                  if (e.key === 'Escape') setEditingItem(null);
+                                }}
+                                onBlur={() => void saveItemUpdate()}
+                              />
+                            ) : item.recipe_id ? (
+                              <button
+                                type="button"
+                                className="meals-item-title"
+                                title={title}
+                                onClick={() => navigate(`/recipes/${item.recipe_id}`)}
+                              >
+                                <Icon name="book" size={14} />
+                                <span>{title}</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="meals-item-title"
+                                title={title}
+                                onClick={() =>
+                                  setEditingItem({ id: item.id, field: 'text', val: item.text_content || '' })
+                                }
+                              >
+                                <span>{title}</span>
+                              </button>
+                            )}
+
+                            <div className="meals-item-actions">
+                              {servingsEditorActive ? (
                                 <input
+                                  type="number"
                                   autoFocus
-                                  className="input"
-                                  value={String(editingItem?.val ?? '')}
+                                  className="input meals-servings-input"
+                                  aria-label={servingsLabel}
+                                  value={Number(editingItem?.val ?? 1)}
                                   onChange={(e) =>
-                                    setEditingItem((current) => (current ? { ...current, val: e.target.value } : current))
+                                    setEditingItem((current) => (current ? { ...current, val: Number(e.target.value) } : current))
                                   }
                                   onKeyDown={(e) => {
                                     if (e.key === 'Enter') void saveItemUpdate();
                                     if (e.key === 'Escape') setEditingItem(null);
                                   }}
                                   onBlur={() => void saveItemUpdate()}
+                                  step="0.1"
+                                  min="0.1"
                                 />
-                              ) : item.recipe_id ? (
-                                <button
-                                  type="button"
-                                  className="meals-item-link"
-                                  onClick={() => navigate(`/recipes/${item.recipe_id}`)}
-                                >
-                                  <Icon name="book" size={16} />
-                                  <span>{title}</span>
-                                </button>
                               ) : (
                                 <button
                                   type="button"
-                                  className="meals-item-text"
+                                  className="meals-servings"
+                                  aria-label={servingsLabel}
+                                  title={servingsLabel}
                                   onClick={() =>
-                                    setEditingItem({ id: item.id, field: 'text', val: item.text_content || '' })
+                                    setEditingItem({ id: item.id, field: 'servings', val: servings })
                                   }
                                 >
-                                  {title}
+                                  x{servings}
                                 </button>
                               )}
-
-                              <div className="meals-item-meta">
-                                {servingsEditorActive ? (
-                                  <input
-                                    type="number"
-                                    autoFocus
-                                    className="input meals-servings-input"
-                                    value={Number(editingItem?.val ?? 1)}
-                                    onChange={(e) =>
-                                      setEditingItem((current) => (current ? { ...current, val: Number(e.target.value) } : current))
-                                    }
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') void saveItemUpdate();
-                                      if (e.key === 'Escape') setEditingItem(null);
-                                    }}
-                                    onBlur={() => void saveItemUpdate()}
-                                    step="0.1"
-                                    min="0.1"
-                                  />
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="meals-servings"
-                                    onClick={() =>
-                                      setEditingItem({ id: item.id, field: 'servings', val: servings })
-                                    }
-                                  >
-                                    {servings === 1 ? t('mealsUi.servingsOne', servings) : t('mealsUi.servingsMany', servings)}
-                                  </button>
-                                )}
-                                {kcal > 0 ? <span>{kcal} kcal</span> : null}
-                                {protein > 0 ? <span>{t('mealsUi.protein', protein)}</span> : null}
-                              </div>
+                              {index === typeItems.length - 1 && !isEditingHere ? (
+                                <button
+                                  type="button"
+                                  className="btn-icon"
+                                  aria-label={addLabel}
+                                  title={addLabel}
+                                  onClick={() => startAddNew(dateStr, type)}
+                                >
+                                  <Icon name="plus" size={16} />
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className="btn-icon"
+                                aria-label={t('mealsUi.deleteMeal', title)}
+                                title={t('mealsUi.deleteMeal', title)}
+                                onClick={() => void deleteItem(item.id)}
+                              >
+                                <Icon name="trash" size={16} />
+                              </button>
                             </div>
-
-                            <button
-                              type="button"
-                              className="icon-button meals-delete"
-                              aria-label={t('mealsUi.deleteMeal', title)}
-                              onClick={() => void deleteItem(item.id)}
-                            >
-                              <Icon name="trash" size={16} />
-                            </button>
                           </div>
                         );
                       })}
@@ -437,6 +459,7 @@ export default function Meals() {
                           <input
                             className="input"
                             autoFocus
+                            aria-label={t('common.search')}
                             placeholder={t('common.search')}
                             value={editVal}
                             onChange={(e) => setEditVal(e.target.value)}
@@ -476,9 +499,9 @@ export default function Meals() {
                         </div>
                       ) : null}
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </section>
           );
         })}
@@ -539,7 +562,7 @@ export default function Meals() {
               </button>
             </div>
             <div className="modal-body">
-              <p className="meals-preview-intro">{t('mealsUi.weekPreviewIntro')}</p>
+
               <div className="form-group">
                 <label className="label" htmlFor="week-list-select">{t('meals.targetList')}</label>
                 <select

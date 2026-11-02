@@ -97,6 +97,25 @@ const PATHS = {
     </>
   ),
   flag: <path d="M5 21V4M5 5h12l-2 4 2 4H5" />,
+  shield: (
+    <>
+      <path d="M12 3 4.5 6v5.5c0 4.4 3.1 8 7.5 9.5 4.4-1.5 7.5-5.1 7.5-9.5V6L12 3Z" />
+      <path d="m9 12 2 2 4-4" />
+    </>
+  ),
+  refresh: (
+    <>
+      <path d="M20 11a8 8 0 1 0-2.3 5.7" />
+      <path d="M20 4v7h-7" />
+    </>
+  ),
+  logout: (
+    <>
+      <path d="M10 17 15 12 10 7" />
+      <path d="M15 12H3" />
+      <path d="M10 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7" />
+    </>
+  ),
 } as const;
 
 export type IconName = keyof typeof PATHS;

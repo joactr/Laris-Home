@@ -61,3 +61,4 @@ client/test-results/
 
 # Local Codex workspace state
 .codex
+.hallmark/

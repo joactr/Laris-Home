@@ -5,6 +5,7 @@ import { t } from '../i18n';
 import { useAuthStore } from '../store/auth';
 import { requestPwaRefresh, usePwaStore } from '../store/pwa';
 import LanguageSwitch from './LanguageSwitch';
+import Icon from './Icon';
 
 function shortKeyFor(path: string): string {
   switch (path) {
@@ -71,17 +72,13 @@ export default function BottomNav() {
           className={`bottom-nav-item ${moreIsActive || isMoreOpen ? 'active' : ''}`}
           onClick={() => setIsMoreOpen((current) => !current)}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <circle cx="5" cy="12" r="1.4" />
-            <circle cx="12" cy="12" r="1.4" />
-            <circle cx="19" cy="12" r="1.4" />
-          </svg>
+          <Icon name="more" />
           <span>{t('shell.more')}</span>
         </button>
       </nav>
 
       <div className={`bottom-sheet ${isMoreOpen ? 'open' : ''}`}>
-        <div className="bottom-sheet-handle" />
+        <div className="bottom-sheet-handle" aria-hidden="true" />
         <div className="bottom-sheet-grid">
           {SECONDARY_ITEMS.map((item) => (
             <button
@@ -107,7 +104,7 @@ export default function BottomNav() {
                 setIsMoreOpen(false);
               }}
             >
-              <span className="menu-tile-icon">⚙</span>
+              <span className="menu-tile-icon"><Icon name="shield" /></span>
               <span>{t('shell.adminShort')}</span>
             </button>
           ) : null}
@@ -123,7 +120,7 @@ export default function BottomNav() {
               void requestPwaRefresh();
             }}
           >
-            <span className="menu-tile-icon">{updateAvailable ? '↻' : '⟳'}</span>
+            <span className="menu-tile-icon"><Icon name="refresh" /></span>
             <span>{updateAvailable ? t('shell.updateApp') : t('shell.reloadApp')}</span>
           </button>
 
@@ -135,7 +132,7 @@ export default function BottomNav() {
               logout();
             }}
           >
-            <span className="menu-tile-icon">↗</span>
+            <span className="menu-tile-icon"><Icon name="logout" /></span>
             <span>{t('nav.logout')}</span>
           </button>
         </div>

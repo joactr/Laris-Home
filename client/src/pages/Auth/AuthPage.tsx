@@ -72,7 +72,6 @@ export default function AuthPage() {
                     Laris
                 </div>
                 <h1 className="auth-title">{needsBootstrap ? t('auth.createAccount') : t('auth.signin')}</h1>
-                <p className="auth-tagline">{needsBootstrap ? t('shell.bootstrapHint') : t('auth.tagline')}</p>
                 {needsBootstrap ? (
                     <form onSubmit={handleBootstrap}>
                         <div className="form-group">
@@ -86,7 +85,6 @@ export default function AuthPage() {
                         <div className="form-group">
                             <label className="label" htmlFor="bootstrap-password">{t('auth.password')}</label>
                             <input id="bootstrap-password" className="input" type="password" autoComplete="new-password" minLength={8} value={bootstrapPassword} onChange={(e) => setBootstrapPassword(e.target.value)} required />
-                            <p className="field-help">{t('shell.minChars')}</p>
                         </div>
                         {bootstrapError && <p className="form-error" role="alert">{bootstrapError}</p>}
                         <button id="bootstrap-submit" className="btn btn-primary auth-submit" disabled={bootstrapLoading}>

@@ -1,92 +1,80 @@
-/* Lista de la compra: listas como pestañas, alta en una fila, artículos en lista plana dividida. */
+/* Hallmark · shopping styles · stamp, critique and records in styles/global.css */
+/* Compra: listas como chips, alta en una fila, artículos en filas planas. */
 
-.shopping-lists {
+.shopping-bar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-2xs);
   margin-bottom: var(--space-sm);
 }
 
-.shopping-list-tab {
-  border: 0;
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 0.85rem;
-  min-height: 40px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-weight: 600;
-  transition: background var(--transition-fast), color var(--transition-fast);
+.shopping-lists {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: var(--space-xs);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
-.shopping-list-tab:hover {
-  color: var(--text-primary);
-  background: var(--bg-ghost);
-}
-
-.shopping-list-tab[aria-selected="true"] {
-  background: var(--accent-soft);
-  color: var(--text-primary);
-}
-
-.shopping-create {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 0.7rem;
-  min-height: 40px;
+.shopping-lists::-webkit-scrollbar {
+  display: none;
 }
 
 .shopping-add {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-xs);
   margin-bottom: var(--space-md);
+}
+
+.shopping-add .input {
+  min-width: 0;
 }
 
 .shopping-add-name {
-  flex: 1 1 100%;
-  min-width: 0;
+  flex: 1;
 }
 
 .shopping-add .input[type="number"] {
-  flex: 1 1 90px;
-  min-width: 0;
+  flex: 0 0 5.5rem;
 }
 
 .shopping-add .btn {
-  flex: 1 1 auto;
-  min-height: 44px;
+  flex-shrink: 0;
 }
 
-.shopping-filter {
-  margin-bottom: var(--space-md);
+.shopping-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.shopping-filters .status-badge {
+  gap: var(--space-2xs);
+  flex-shrink: 0;
 }
 
 .shopping-suggest {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: var(--space-md);
-  color: var(--text-secondary);
-  font-size: 0.85rem;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+  color: var(--text-muted);
 }
 
-.shopping-suggest-btn {
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-full);
-  padding: 0.4rem 0.8rem;
-  min-height: 40px;
-  background: transparent;
-  color: var(--text-secondary);
+.shopping-suggest svg {
+  flex-shrink: 0;
 }
 
-.shopping-suggest-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--surface-border-strong);
+.shopping-suggest .chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  line-height: var(--control-h-sm);
 }
 
 .shopping-list {
@@ -98,34 +86,30 @@
 .shopping-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0.7rem 0;
+  gap: var(--space-sm);
+  min-height: 48px;
   border-bottom: 1px solid var(--surface-border);
 }
 
-.shopping-item:first-child {
-  border-top: 1px solid var(--surface-border);
-}
-
 .shopping-check {
-  border: 0;
-  background: transparent;
-  padding: 8px;
-  margin: -8px;
-  min-width: 40px;
-  min-height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  width: var(--hit);
+  height: var(--hit);
+  margin-left: calc(var(--space-xs) * -1);
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .shopping-check-circle {
   width: 20px;
   height: 20px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   border: 1.5px solid var(--accent);
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition: background-color var(--transition-fast);
 }
 
 .shopping-check:hover .shopping-check-circle {
@@ -133,27 +117,39 @@
 }
 
 .shopping-item-copy {
+  display: flex;
   flex: 1;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-xs);
   min-width: 0;
+  padding: var(--space-xs) 0;
 }
 
 .shopping-item-name {
-  font-weight: 600;
-  overflow-wrap: break-word;
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .shopping-item.done .shopping-item-name {
+  color: var(--text-muted);
   text-decoration: line-through;
 }
 
-.shopping-item.done {
+.shopping-item-qty {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.shopping-item-state {
+  display: inline-flex;
+  align-self: center;
   color: var(--text-muted);
 }
 
-.shopping-item-meta {
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  margin-top: 2px;
+.shopping-item-state.error {
+  color: var(--red);
 }
 
 .shopping-item .avatar {
@@ -162,7 +158,6 @@
 
 .shopping-delete {
   color: var(--text-muted);
-  flex-shrink: 0;
 }
 
 .shopping-delete:hover {
@@ -171,26 +166,35 @@
 }
 
 .shopping-bought-title {
-  margin: var(--space-lg) 0 var(--space-xs);
+  margin: var(--space-lg) 0 var(--space-2xs);
   color: var(--text-muted);
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: 500;
 }
 
-@media (min-width: 961px) {
+@media (max-width: 960px) {
+  .page-shopping .btn-icon {
+    width: var(--hit);
+    height: var(--hit);
+  }
+
+  .page-shopping .chip {
+    min-height: var(--hit);
+  }
+
   .shopping-add {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 
   .shopping-add-name {
-    flex: 1 1 auto;
+    flex-basis: 100%;
   }
 
   .shopping-add .input[type="number"] {
-    flex: 0 0 88px;
+    flex: 1 1 0;
   }
 
-  .shopping-add .btn {
-    flex: 0 0 auto;
+  .shopping-item .avatar + .btn-icon {
+    margin-left: calc(var(--space-xs) * -1);
   }
 }

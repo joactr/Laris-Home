@@ -2,14 +2,12 @@ import type { HTMLAttributes, ReactNode } from 'react';
 
 type SurfaceProps = HTMLAttributes<HTMLElement> & {
   title?: ReactNode;
-  subtitle?: ReactNode;
   actions?: ReactNode;
   as?: 'section' | 'div' | 'article';
 };
 
 export default function Surface({
   title,
-  subtitle,
   actions,
   className = '',
   children,
@@ -20,12 +18,9 @@ export default function Surface({
 
   return (
     <Tag className={`surface ${className}`.trim()} {...rest}>
-      {(title || subtitle || actions) && (
+      {(title || actions) && (
         <div className="surface-header">
-          <div className="surface-heading">
-            {title ? <h2 className="surface-title">{title}</h2> : null}
-            {subtitle ? <p className="surface-subtitle">{subtitle}</p> : null}
-          </div>
+          {title ? <h2 className="surface-title">{title}</h2> : null}
           {actions ? <div className="surface-actions">{actions}</div> : null}
         </div>
       )}
@@ -33,4 +28,3 @@ export default function Surface({
     </Tag>
   );
 }
-

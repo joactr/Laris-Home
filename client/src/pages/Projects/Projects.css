@@ -1,8 +1,4 @@
-.projects-page .section-header-actions .btn,
-.projects-page .projects-board-top .btn {
-  min-height: 40px;
-}
-
+/* Hallmark · projects styles · stamp, critique and records in styles/global.css */
 .projects-list {
   list-style: none;
   margin: 0;
@@ -10,138 +6,123 @@
   border-top: 1px solid var(--surface-border);
 }
 
+.projects-list--archived {
+  margin-top: var(--space-lg);
+}
+
+.projects-list--archived .projects-row-name {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
 .projects-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0 6px 4px;
+  gap: var(--space-sm);
+  min-height: 48px;
   border-bottom: 1px solid var(--surface-border);
 }
 
-.projects-row-main {
+.projects-row-name {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 8px 4px;
+  min-height: var(--hit);
+  padding: 0;
+  overflow: hidden;
   background: none;
   border: 0;
-  border-radius: var(--radius-sm);
-  color: inherit;
+  color: var(--text-primary);
+  font-weight: 500;
   text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.projects-row-name {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-primary);
-  font-weight: 650;
+.projects-row-name:hover {
+  color: var(--accent-strong);
 }
 
-.projects-row-desc {
-  max-width: 100%;
+.projects-bar {
+  flex: none;
+  width: 160px;
+  height: var(--space-2xs);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-muted);
-  font-size: 0.85rem;
+  background: var(--bg-muted);
+  border-radius: var(--radius-full);
 }
 
-.projects-row-progress {
+.projects-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.projects-fig {
+  flex: none;
+  min-width: 3ch;
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
-}
-
-.projects-row--archived .projects-row-name {
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.projects-row .icon-button,
-.projects-board-top .icon-button {
-  min-width: 40px;
-  min-height: 40px;
-}
-
-.projects-group-title {
-  margin: 24px 0 8px;
-  color: var(--text-secondary);
-  font-size: 1rem;
+  text-align: right;
 }
 
 .projects-board-top {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.projects-board-title {
-  flex: 1;
+  gap: var(--space-xs);
   min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 1.2rem;
 }
 
 .projects-board {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(248px, 85vw);
-  gap: 16px;
-  overflow-x: auto;
-  padding-bottom: 12px;
-  scroll-snap-type: x mandatory;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+  align-items: start;
 }
 
 .projects-col {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 8px;
-  scroll-snap-align: start;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
 }
 
 .projects-col-head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 0 4px;
+  gap: var(--space-xs);
+  padding: 0 var(--space-2xs);
 }
 
 .projects-col-head h2 {
-  margin: 0;
-  font-size: 0.95rem;
+  font-size: var(--text-md);
+  font-weight: 600;
+  text-wrap: balance;
 }
 
 .projects-count {
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 
 .projects-col-add {
+  width: 100%;
   justify-content: flex-start;
-  min-height: 40px;
+  color: var(--text-muted);
 }
 
 .projects-col-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-height: 96px;
-  margin: 0 -4px;
-  padding: 4px;
-  border-radius: var(--radius-md);
-  transition: background var(--transition-fast);
+  gap: var(--space-xs);
+  min-height: var(--space-2xl);
+  border-radius: var(--radius-sm);
+  transition: background-color var(--transition-fast);
 }
 
 .projects-col-list--over {
@@ -151,11 +132,10 @@
 .projects-task {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-md);
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  background: var(--bg-muted);
+  border-radius: var(--radius-sm);
   cursor: grab;
 }
 
@@ -168,23 +148,21 @@
 }
 
 .projects-task-title {
-  font-size: 0.92rem;
-  font-weight: 600;
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .projects-task-meta {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px 12px;
+  gap: var(--space-sm);
+  min-height: var(--space-lg);
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
 }
 
 .projects-flag {
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
 }
 
 .projects-flag--high {
@@ -202,34 +180,39 @@
 .projects-due {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2xs);
   font-variant-numeric: tabular-nums;
 }
 
 .projects-due--over {
   color: var(--red);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .projects-assignee {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-secondary);
+  margin-left: auto;
 }
 
-.projects-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-
-@media (min-width: 961px) {
+@media (max-width: 960px) {
   .projects-board {
-    grid-auto-flow: row;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .projects-bar {
+    width: 64px;
+  }
+
+  .projects-board-top .projects-board-title {
+    position: static;
+    width: auto;
+    height: auto;
     overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    font-size: var(--text-lg);
+  }
+
+  .projects-col-add {
+    min-height: var(--hit);
   }
 }

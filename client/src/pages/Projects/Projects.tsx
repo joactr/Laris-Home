@@ -21,7 +21,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { api } from '../../api';
-import { t } from '../../i18n';
+import { t, getLanguage } from '../../i18n';
 import ConfirmModal from '../../components/ConfirmModal';
 import SectionHeader from '../../components/SectionHeader';
 import Icon from '../../components/Icon';
@@ -47,10 +47,31 @@ type TaskFormState = {
     due_date: string;
 };
 
-function projectProgress(project: ProjectSummary): string | null {
-    if (project.task_count == null) return null;
-    if (project.task_count === 0) return t('projUi.noTasks');
-    return t('projUi.progress', project.done_tasks ?? 0, project.task_count);
+function ProjectRow({ project, icon, actionLabel, onOpen, onAction }: {
+    project: ProjectSummary;
+    icon: 'archive' | 'undo';
+    actionLabel: string;
+    onOpen: () => void;
+    onAction: () => void;
+}) {
+    const total = project.task_count;
+    const done = project.done_tasks ?? 0;
+    return (
+        <li className="projects-row">
+            <button type="button" className="projects-row-name" onClick={onOpen}>{project.name}</button>
+            {total != null && (
+                <>
+                    <span className="projects-bar" role="progressbar" aria-label={project.name} aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}>
+                        <span className="projects-bar-fill" style={{ width: total ? `${(done / total) * 100}%` : 0 }} />
+                    </span>
+                    <span className="projects-fig">{done}/{total}</span>
+                </>
+            )}
+            <button className="icon-button" onClick={onAction} aria-label={actionLabel} title={actionLabel}>
+                <Icon name={icon} size={18} />
+            </button>
+        </li>
+    );
 }
 
 function ProjectList() {
@@ -94,70 +115,44 @@ function ProjectList() {
                 actions={
                     <button
                         id="projects-add"
-                        className="btn btn-primary btn-sm"
+                        className="btn btn-primary"
                         onClick={() => setShowModal(true)}
                     >
-                        <Icon name="plus" size={16} aria-hidden="true" />
+                        <Icon name="plus" size={16} />
                         {t('projects.newProject')}
                     </button>
                 }
             />
             {active.length > 0 && (
                 <ul className="projects-list">
-                    {active.map((p) => {
-                        const progress = projectProgress(p);
-                        return (
-                        <li key={p.id} className="projects-row">
-                            <button
-                                type="button"
-                                className="projects-row-main"
-                                onClick={() => navigate(`/projects/${p.id}`)}
-                            >
-                                <span className="projects-row-name">{p.name}</span>
-                                {p.description && <span className="projects-row-desc">{p.description}</span>}
-                                {progress ? <span className="projects-row-progress">{progress}</span> : null}
-                            </button>
-                            <button
-                                className="icon-button"
-                                onClick={() => setConfirmArchiveId(p.id)}
-                                aria-label={t('projUi.archiveProject', p.name)}
-                            >
-                                <Icon name="archive" size={18} aria-hidden="true" />
-                            </button>
-                        </li>
-                        );
-                    })}
+                    {active.map((p) => (
+                        <ProjectRow
+                            key={p.id}
+                            project={p}
+                            icon="archive"
+                            actionLabel={t('projUi.archiveProject', p.name)}
+                            onOpen={() => navigate(`/projects/${p.id}`)}
+                            onAction={() => setConfirmArchiveId(p.id)}
+                        />
+                    ))}
                 </ul>
             )}
             {active.length === 0 && (
-                <p className="empty-state">{t('projUi.emptyActive')}</p>
+                <p className="empty-state">{t('projects.noActive')}</p>
             )}
             {archived.length > 0 && (
                 <section aria-label={t('projects.archivedTitle')}>
-                    <ul className="projects-list">
-                        {archived.map((p) => {
-                            const progress = projectProgress(p);
-                            return (
-                            <li key={p.id} className="projects-row projects-row--archived">
-                                <button
-                                    type="button"
-                                    className="projects-row-main"
-                                    onClick={() => navigate(`/projects/${p.id}`)}
-                                >
-                                    <span className="projects-row-name">{p.name}</span>
-                                    {p.description && <span className="projects-row-desc">{p.description}</span>}
-                                    {progress ? <span className="projects-row-progress">{progress}</span> : null}
-                                </button>
-                                <button
-                                    className="icon-button"
-                                    onClick={() => void handleRestore(p.id)}
-                                    aria-label={t('projUi.restoreProject', p.name)}
-                                >
-                                    <Icon name="undo" size={18} aria-hidden="true" />
-                                </button>
-                            </li>
-                            );
-                        })}
+                    <ul className="projects-list projects-list--archived">
+                        {archived.map((p) => (
+                            <ProjectRow
+                                key={p.id}
+                                project={p}
+                                icon="undo"
+                                actionLabel={t('projUi.restoreProject', p.name)}
+                                onOpen={() => navigate(`/projects/${p.id}`)}
+                                onAction={() => void handleRestore(p.id)}
+                            />
+                        ))}
                     </ul>
                 </section>
             )}
@@ -210,6 +205,7 @@ function isOverdue(task: ProjectTask): boolean {
 
 function TaskCard({ task, onClick, isOverlay, style }: { task: ProjectTask | undefined, onClick?: () => void, isOverlay?: boolean, style?: React.CSSProperties }) {
     if (!task) return null;
+    const priority = t(`projects.${task.priority}`);
     return (
         <div
             style={style}
@@ -218,20 +214,18 @@ function TaskCard({ task, onClick, isOverlay, style }: { task: ProjectTask | und
         >
             <span className="projects-task-title">{task.title}</span>
             <span className="projects-task-meta">
-                <span className={`projects-flag projects-flag--${task.priority}`}>
-                    <Icon name="flag" size={13} aria-hidden="true" />
-                    <span>{t(`projects.${task.priority}`)}</span>
+                <span className={`projects-flag projects-flag--${task.priority}`} role="img" aria-label={priority} title={priority}>
+                    <Icon name="flag" size={16} />
                 </span>
                 {task.due_date && (
                     <span className={isOverdue(task) ? 'projects-due projects-due--over' : 'projects-due'}>
-                        <Icon name="calendar" size={13} aria-hidden="true" />
-                        <span>{task.due_date.slice(0, 10)}</span>
+                        <Icon name="clock" size={14} />
+                        {new Date(`${task.due_date.slice(0, 10)}T00:00:00`).toLocaleDateString(getLanguage(), { day: 'numeric', month: 'short' })}
                     </span>
                 )}
                 {task.assigned_name && (
-                    <span className="projects-assignee">
-                        <span className="projects-dot" style={task.assigned_color ? { background: task.assigned_color } : undefined} aria-hidden="true" />
-                        <span>{task.assigned_name}</span>
+                    <span className="avatar projects-assignee" title={task.assigned_name} style={task.assigned_color ? { background: task.assigned_color } : undefined}>
+                        {task.assigned_name.charAt(0).toUpperCase()}
                     </span>
                 )}
             </span>
@@ -279,6 +273,7 @@ function ProjectBoard() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const [tasks, setTasks] = useState<ProjectTask[]>([]);
+    const [projectName, setProjectName] = useState('');
     const [members, setMembers] = useState<AuthUser[]>([]);
     const [showModal, setShowModal] = useState(false);
     const [editTask, setEditTask] = useState<ProjectTask | null>(null);
@@ -295,8 +290,9 @@ function ProjectBoard() {
     );
 
     const load = async () => {
-        const [t, m] = await Promise.all([api.projects.getTasks(id!), api.auth.members()]);
+        const [t, m, all] = await Promise.all([api.projects.getTasks(id!), api.auth.members(), api.projects.getAll()]);
         setTasks(t); setMembers(m);
+        setProjectName(all.find(p => p.id === id)?.name ?? '');
     };
     useEffect(() => { load(); }, [id]);
 
@@ -368,16 +364,20 @@ function ProjectBoard() {
 
     return (
         <div className="page projects-page">
-            <div className="projects-board-top">
-                <button className="icon-button" onClick={() => navigate('/projects')} aria-label={t('common.back', 'Volver')}>
-                    <Icon name="chevronLeft" size={20} aria-hidden="true" />
-                </button>
-                <h1 className="projects-board-title">{t('projects.tasks')}</h1>
-                <button id="task-add" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
-                    <Icon name="plus" size={16} aria-hidden="true" />
-                    {t('projects.newTask')}
-                </button>
-            </div>
+            <header className="section-header-block">
+                <div className="projects-board-top">
+                    <button className="icon-button" onClick={() => navigate('/projects')} aria-label={t('common.back', 'Volver')}>
+                        <Icon name="chevronLeft" size={20} />
+                    </button>
+                    <h1 className="section-title-main projects-board-title">{projectName || t('projects.tasks')}</h1>
+                </div>
+                <div className="section-header-actions">
+                    <button id="task-add" className="btn btn-primary" onClick={() => openCreate()}>
+                        <Icon name="plus" size={16} />
+                        {t('projects.newTask')}
+                    </button>
+                </div>
+            </header>
 
             <DndContext
                 sensors={sensors}
@@ -392,13 +392,13 @@ function ProjectBoard() {
                             <section key={status} className="projects-col" aria-label={status === 'todo' ? t('projects.statusTodo') : status === 'inProgress' ? t('projects.statusInProgress') : t('projects.statusDone')}>
                                 <div className="projects-col-head">
                                     <h2>{status === 'todo' ? t('projects.statusTodo') : status === 'inProgress' ? t('projects.statusInProgress') : t('projects.statusDone')}</h2>
-                                    <span className="projects-count">{columnTasks.length === 1 ? t('projUi.tasksCountOne', columnTasks.length) : t('projUi.tasksCountMany', columnTasks.length)}</span>
+                                    <span className="projects-count">{columnTasks.length}</span>
                                 </div>
                                 <button
                                     className="btn btn-ghost btn-sm projects-col-add"
                                     onClick={() => openCreate(status)}
                                 >
-                                    <Icon name="plus" size={16} aria-hidden="true" />
+                                    <Icon name="plus" size={16} />
                                     {t('projUi.addTaskCol')}
                                 </button>
 

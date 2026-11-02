@@ -1,3 +1,4 @@
+/* Hallmark · voice assistant styles · stamp, critique and records in styles/global.css */
 .voice-button.listening {
   background: var(--red-soft);
   color: var(--red);
@@ -17,13 +18,14 @@
   border-width: 2px;
 }
 
-.voice-status-overlay {
+.voice-status-overlay,
+.voice-error-toast {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + var(--topbar-height) + 8px);
-  right: 16px;
-  z-index: 42;
-  width: min(320px, calc(100vw - 32px));
-  padding: 12px 14px;
+  top: calc(env(safe-area-inset-top) + var(--topbar-height) + var(--space-xs));
+  left: var(--space-md);
+  right: var(--space-md);
+  z-index: var(--z-toast);
+  padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
   border: 1px solid var(--surface-border-strong);
@@ -31,9 +33,9 @@
 }
 
 .voice-status-header {
-  margin-bottom: 4px;
-  font-size: 0.85rem;
-  font-weight: 600;
+  margin-bottom: var(--space-2xs);
+  font-size: var(--text-sm);
+  font-weight: 500;
   color: var(--accent);
 }
 
@@ -42,14 +44,17 @@
 }
 
 .voice-error-toast {
-  position: fixed;
-  top: calc(env(safe-area-inset-top) + 12px);
-  right: 16px;
-  z-index: 65;
-  max-width: 320px;
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  background: var(--red);
-  color: var(--on-accent);
-  box-shadow: var(--shadow-md);
+  border-color: var(--red);
+  color: var(--text-primary);
+}
+
+@media (min-width: 961px) {
+  .voice-status-overlay,
+  .voice-error-toast {
+    top: auto;
+    left: auto;
+    right: var(--space-lg);
+    bottom: calc(var(--space-lg) + 56px);
+    width: 320px;
+  }
 }

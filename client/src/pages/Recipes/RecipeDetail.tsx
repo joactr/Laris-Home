@@ -109,13 +109,9 @@ export default function RecipeDetail() {
     }, []);
 
     if (loading) return <div className="loading-center"><div className="spinner" /></div>;
-    if (error || !recipe) return <div className="page" style={{ padding: '2rem', color: 'red' }}>Error: {error || t('rec.notFound')}</div>;
+    if (error || !recipe) return <div className="page"><p className="form-error" role="alert">{error || t('rec.notFound')}</p></div>;
 
-    const metaParts: string[] = [];
-    if (recipe.servings) metaParts.push(t(recipe.servings === 1 ? 'rec.servingsOne' : 'rec.servingsMany', recipe.servings));
     const mins = (recipe.prep_time_minutes || 0) + (recipe.cook_time_minutes || 0);
-    if (mins) metaParts.push(`${mins} min`);
-    if (recipe.calories_per_serving) metaParts.push(t('rec.kcalPerServing', recipe.calories_per_serving));
 
     const nutrition: Array<[string, string]> = [];
     if (recipe.calories_per_serving) nutrition.push([t('recipes.calories'), `${recipe.calories_per_serving} kcal`]);
@@ -123,7 +119,7 @@ export default function RecipeDetail() {
     if (recipe.carbs_per_serving) nutrition.push([t('recipes.carbs'), `${recipe.carbs_per_serving} g`]);
     if (recipe.fat_per_serving) nutrition.push([t('recipes.fat'), `${recipe.fat_per_serving} g`]);
 
-    const tags = (recipe.tags || []).map((tag) => tag.name).join(', ');
+    const tags = (recipe.tags || []).map((tag) => tag.name);
 
     const handleDelete = async () => {
         try {
@@ -173,29 +169,55 @@ export default function RecipeDetail() {
                 </button>
                 <h1>{recipe.title}</h1>
             </div>
-            {recipe.description ? <p className="recipe-detail-meta">{recipe.description}</p> : null}
-            {metaParts.length > 0 ? <p className="recipe-detail-meta">{metaParts.join(', ')}</p> : null}
-            {tags ? <p className="recipe-detail-tags">{tags}</p> : null}
 
-            {recipe.image_url ? (
-                <img
-                    src={recipe.image_url}
-                    alt=""
-                    className="recipe-detail-hero"
-                    onError={(e) => (e.currentTarget.style.display = 'none')}
-                />
-            ) : null}
-
-            {nutrition.length > 0 ? (
-                <dl className="recipe-nutrition">
-                    {nutrition.map(([label, value]) => (
-                        <div key={label}>
-                            <dt>{label}</dt>
-                            <dd>{value}</dd>
+            <div className={`recipe-detail-head${recipe.image_url ? ' has-image' : ''}`}>
+                <div className="recipe-detail-info">
+                    {recipe.servings || mins ? (
+                        <p className="recipe-detail-meta">
+                            {recipe.servings ? <span>{t('rec.servingsShort', recipe.servings)}</span> : null}
+                            {mins ? <span>{mins} min</span> : null}
+                        </p>
+                    ) : null}
+                    {tags.length > 0 ? (
+                        <div className="recipe-detail-tags">
+                            {tags.map((tag) => <span key={tag} className="status-badge">{tag}</span>)}
                         </div>
-                    ))}
-                </dl>
-            ) : null}
+                    ) : null}
+                    {recipe.description ? <p className="recipe-detail-desc">{recipe.description}</p> : null}
+                    {nutrition.length > 0 ? (
+                        <dl className="recipe-nutrition">
+                            {nutrition.map(([label, value]) => (
+                                <div key={label}>
+                                    <dt>{label}</dt>
+                                    <dd>{value}</dd>
+                                </div>
+                            ))}
+                        </dl>
+                    ) : null}
+                    <div className="recipe-detail-actions">
+                        <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/recipes/${recipe.id}/edit`)}>
+                            {t('common.edit')}
+                        </button>
+                        {recipe.source_url && (
+                            <a href={recipe.source_url} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm">
+                                <Icon name="link" size={16} />
+                                {t('rec.viewOriginal')}
+                            </a>
+                        )}
+                        <button className="btn btn-ghost btn-sm btn-danger-text recipe-detail-delete" onClick={() => setShowDeleteConfirm(true)}>
+                            {t('common.delete')}
+                        </button>
+                    </div>
+                </div>
+                {recipe.image_url ? (
+                    <img
+                        src={recipe.image_url}
+                        alt=""
+                        className="recipe-detail-hero"
+                        onError={(e) => (e.currentTarget.style.display = 'none')}
+                    />
+                ) : null}
+            </div>
 
             <div className="recipe-detail-grid">
                 <section aria-label={t('recipes.ingredients')}>
@@ -210,18 +232,19 @@ export default function RecipeDetail() {
                     <ul className="recipe-ingredients">
                         {recipe.ingredients?.map((ing) => (
                             <li key={ing.id}>
-                                <input
-                                    type="checkbox"
-                                    checked={selectedIngredients.includes(ing.id)}
-                                    onChange={() => toggleIngredient(ing.id)}
-                                    aria-label={ing.name}
-                                />
-                                <span>
-                                    {ing.quantity ? <strong>{ing.quantity} </strong> : null}
-                                    {ing.unit ? <span>{ing.unit} </span> : null}
-                                    {ing.name}
-                                    {ing.notes ? <span className="notes"> ({ing.notes})</span> : null}
-                                </span>
+                                <label>
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedIngredients.includes(ing.id)}
+                                        onChange={() => toggleIngredient(ing.id)}
+                                    />
+                                    <span>
+                                        {ing.quantity ? <span className="qty">{ing.quantity} </span> : null}
+                                        {ing.unit ? <span>{ing.unit} </span> : null}
+                                        {ing.name}
+                                        {ing.notes ? <span className="notes"> ({ing.notes})</span> : null}
+                                    </span>
+                                </label>
                             </li>
                         ))}
                     </ul>
@@ -235,20 +258,6 @@ export default function RecipeDetail() {
                         ))}
                     </ol>
                 </section>
-            </div>
-
-            <div className="recipe-detail-footer">
-                {recipe.source_url && (
-                    <a href={recipe.source_url} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
-                        {t('rec.viewOriginal')}
-                    </a>
-                )}
-                <button className="btn btn-primary btn-sm" onClick={() => navigate(`/recipes/${recipe.id}/edit`)}>
-                    {t('common.edit')}
-                </button>
-                <button className="btn btn-ghost btn-sm btn-danger-text" onClick={() => setShowDeleteConfirm(true)}>
-                    {t('common.delete')}
-                </button>
             </div>
 
             {showShoppingModal && (
@@ -287,23 +296,23 @@ export default function RecipeDetail() {
 
             {voiceMessage && (
                 <div className="modal-overlay" onClick={() => setVoiceMessage(null)}>
-                    <div className="modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+                    <div className="modal" onClick={e => e.stopPropagation()}>
                         <div className="modal-header">
                             <span className="modal-title">{t('rec.voiceTitle')}</span>
-                            <button className="modal-close" onClick={() => setVoiceMessage(null)} aria-label={t('common.close')}>
+                            <button className="modal-close touch-target" onClick={() => setVoiceMessage(null)} aria-label={t('common.close')}>
                                 <Icon name="close" size={18} />
                             </button>
                         </div>
-                        <div style={{ padding: '0 0 16px' }}>
-                            {voiceMessage}
+                        <div className="modal-body">
+                            <p>{voiceMessage}</p>
                             {voiceTranscript && (
-                                <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: 10, marginTop: 16, color: 'var(--text-secondary)', fontSize: 13 }}>
+                                <div className="modal-details">
                                     <strong>{t('voice.transcriptLabel')}:</strong> {voiceTranscript}
                                 </div>
                             )}
-                        </div>
-                        <div className="modal-actions">
-                            <button className="btn btn-primary" onClick={() => setVoiceMessage(null)}>{t('common.close')}</button>
+                            <div className="modal-actions">
+                                <button className="btn btn-primary" onClick={() => setVoiceMessage(null)}>{t('common.close')}</button>
+                            </div>
                         </div>
                     </div>
                 </div>

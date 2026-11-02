@@ -1,0 +1,82 @@
+:root {
+  /* Superficies: grafito cálido, sin tinte azul ni violeta */
+  --bg-primary: #171614;
+  --bg-elevated: #1f1d1a;
+  --bg-muted: #272521;
+  --bg-soft: #322f2a;
+  --bg-ghost: rgba(255, 244, 230, 0.04);
+  --surface-border: rgba(255, 244, 230, 0.09);
+  --surface-border-strong: rgba(255, 244, 230, 0.16);
+  --scrim: rgba(10, 9, 8, 0.66);
+
+  --text-primary: #f4efe8;
+  --text-secondary: #cbc3b7;
+  --text-muted: #a0978a;
+  /* Borde de campo derivado del texto apagado: ≥3:1 sobre el fondo */
+  --field-border: color-mix(in oklab, var(--text-muted) 72%, var(--bg-primary));
+
+  /* Acento: naranja de hogar. Solo acción primaria, selección y estado. */
+  --accent: #ea9a62;
+  --accent-strong: #f5c394;
+  --accent-soft: rgba(234, 154, 98, 0.14);
+  --on-accent: #1d1308;
+
+  --green: #8fcf9f;
+  --green-soft: rgba(143, 207, 159, 0.15);
+  --yellow: #e9d17a;
+  --yellow-soft: rgba(233, 209, 122, 0.15);
+  --red: #ef8a7e;
+  --red-soft: rgba(239, 138, 126, 0.15);
+  --pink: #e3a0c8;
+  --pink-soft: rgba(227, 160, 200, 0.16);
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+
+  --space-3xs: 2px;
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+
+  /* Escala 1.2, tres pesos: 400 / 500 / 600 */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.2rem;
+  --text-xl: 1.44rem;
+  --text-2xl: 1.728rem;
+
+  --control-h: 36px;
+  --control-h-sm: 32px;
+  --hit: 44px;
+
+  /* Sombras solo para lo que flota (menús, modales, toasts) */
+  --shadow-md: 0 12px 32px rgba(0, 0, 0, 0.38), 0 2px 6px rgba(0, 0, 0, 0.3);
+
+  --sidebar-width: 216px;
+  --topbar-height: 52px;
+  --bottom-nav-height: 64px;
+  --content-width: 1120px;
+
+  --z-sticky: 30;
+  --z-nav: 40;
+  --z-sheet: 46;
+  --z-drawer: 50;
+  --z-modal: 60;
+  --z-toast: 70;
+
+  --font-display: "Bricolage Grotesque Variable", "Segoe UI", system-ui, sans-serif;
+  --font-family: "Onest Variable", "Segoe UI", system-ui, sans-serif;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-fast: 140ms var(--ease-out);
+  --transition: 220ms var(--ease-out);
+}

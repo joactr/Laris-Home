@@ -26,7 +26,6 @@ import type {
   AuthUser,
   CalendarEvent,
   CalendarEventInput,
-  DashboardPayload,
 } from '../../../../shared/contracts';
 import './Calendar.css';
 
@@ -49,11 +48,6 @@ type ChoreForm = {
 };
 
 type AgendaMode = 'month' | 'agenda';
-
-type DashboardMeta = {
-  summary?: { text?: string };
-  activity?: Array<{ id: string; title: string; detail: string; path: string; type: string }>;
-};
 
 type ChoreInstance = {
   id: string;
@@ -94,7 +88,6 @@ export default function Calendar() {
   const [chores, setChores] = useState<ChoreInstance[]>([]);
   const [members, setMembers] = useState<AuthUser[]>([]);
   const [stats, setStats] = useState<ChoreStat[]>([]);
-  const [dashboardMeta, setDashboardMeta] = useState<DashboardMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -174,25 +167,6 @@ export default function Calendar() {
       active = false;
     };
   }, [gridStart, gridEnd]);
-
-  useEffect(() => {
-    let active = true;
-
-    const loadDashboardMeta = async () => {
-      try {
-        const nextDashboardMeta: DashboardPayload = await api.dashboard.get();
-        if (!active) return;
-        setDashboardMeta(nextDashboardMeta);
-      } catch {
-        // Secondary context should not block agenda rendering.
-      }
-    };
-
-    void loadDashboardMeta();
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -392,9 +366,15 @@ export default function Calendar() {
         title={t('page.calendar')}
         actions={
           <div className="cal-header-actions">
-            <button type="button" className="btn btn-secondary" onClick={() => setShowChoreModal(true)}>
+            <button
+              type="button"
+              className="btn btn-secondary cal-task-btn"
+              aria-label={t('cal.newTask')}
+              title={t('cal.newTask')}
+              onClick={() => setShowChoreModal(true)}
+            >
               <Icon name="plus" size={16} />
-              {t('cal.newTask')}
+              <span className="cal-btn-label">{t('cal.newTask')}</span>
             </button>
             <button type="button" className="btn btn-primary" onClick={() => openCreateEvent(selectedDate)}>
               <Icon name="plus" size={16} />
@@ -408,7 +388,7 @@ export default function Calendar() {
         <div className="cal-month-nav">
           <button
             type="button"
-            className="btn btn-ghost btn-icon cal-nav-btn"
+            className="btn btn-ghost btn-icon"
             aria-label={mode === 'month' ? t('cal.prevMonth') : t('cal.prevDay')}
             onClick={() => (mode === 'month' ? setCurrentMonth(subMonths(currentMonth, 1)) : stepDay(-1))}
           >
@@ -417,30 +397,32 @@ export default function Calendar() {
           <h2>{toolbarLabel}</h2>
           <button
             type="button"
-            className="btn btn-ghost btn-icon cal-nav-btn"
+            className="btn btn-ghost btn-icon"
             aria-label={mode === 'month' ? t('cal.nextMonth') : t('cal.nextDay')}
             onClick={() => (mode === 'month' ? setCurrentMonth(addMonths(currentMonth, 1)) : stepDay(1))}
           >
             <Icon name="chevronRight" size={18} />
           </button>
+        </div>
+        <div className="cal-view">
           <button type="button" className="btn btn-secondary btn-sm" onClick={goToday}>
             {t('cal.today')}
           </button>
+          <SegmentedControl
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: 'month', label: t('cal.modeMonth') },
+              { value: 'agenda', label: t('cal.modeDay') },
+            ]}
+          />
         </div>
-        <SegmentedControl
-          value={mode}
-          onChange={setMode}
-          options={[
-            { value: 'month', label: t('cal.modeMonth') },
-            { value: 'agenda', label: t('cal.modeDay') },
-          ]}
-        />
       </div>
 
-      {error ? <p className="cal-offline">{error}</p> : null}
-      {isOffline ? <p className="cal-offline">{t('cal.offline')}</p> : null}
+      {error ? <p className="form-error">{error}</p> : null}
+      {isOffline ? <p className="cal-status">{t('cal.offline')}</p> : null}
 
-      <div className="cal-layout">
+      <div className={`cal-layout ${mode === 'agenda' ? 'day' : ''}`.trim()}>
         {mode === 'month' ? (
           <section aria-label={format(currentMonth, 'MMMM yyyy', { locale: dateLocale() })}>
             <div className="cal-weekhead" aria-hidden="true">
@@ -465,8 +447,8 @@ export default function Calendar() {
                     done: chore.status === 'done',
                   })),
                 ].slice(0, 3);
-                const extraCount = dayEvents.length + dayChores.length - visible.length;
                 const itemCount = dayEvents.length + dayChores.length;
+                const extraCount = itemCount - visible.length;
                 const dayLabel = format(day, dateFormats.weekdayDayMonth(), { locale: dateLocale() });
                 const dayAria = itemCount
                   ? `${dayLabel}, ${t(itemCount === 1 ? 'cal.itemsOne' : 'cal.itemsMany', itemCount)}`
@@ -484,13 +466,13 @@ export default function Calendar() {
                     <span className="cal-date">{format(day, 'd')}</span>
                     <span className="cal-items">
                       {visible.map((item) => (
-                        <span key={item.id} className={`cal-item ${item.done ? 'done' : ''}`}>
-                          <span className="cal-item-label">{item.label}</span>
+                        <span key={item.id} className={`cal-item ${item.done ? 'done' : ''}`.trim()}>
+                          {item.label}
                         </span>
                       ))}
                       {extraCount > 0 ? <span className="cal-more">{t('cal.more', extraCount)}</span> : null}
                     </span>
-                    {itemCount > 0 ? <span className="cal-cell-count" aria-hidden="true">{itemCount}</span> : null}
+                    {itemCount > 0 ? <span className="cal-count" aria-hidden="true">{itemCount}</span> : null}
                   </button>
                 );
               })}
@@ -500,145 +482,99 @@ export default function Calendar() {
 
         <section className="cal-day" aria-label={t('cal.dayDetail')}>
           {mode === 'agenda' ? null : (
-            <>
-              <h2>{format(selectedDate, dateFormats.weekdayDayMonth(), { locale: dateLocale() })}</h2>
-              <p className="cal-day-counts">
-                {t(selectedDayEvents.length === 1 ? 'cal.eventsOne' : 'cal.eventsMany', selectedDayEvents.length)}, {t(selectedDayChores.length === 1 ? 'cal.choresOne' : 'cal.choresMany', selectedDayChores.length)}
-              </p>
-            </>
+            <h2>{format(selectedDate, dateFormats.weekdayDayMonth(), { locale: dateLocale() })}</h2>
           )}
 
-          <div className="cal-group">
-            <h3>{t('cal.events')}</h3>
-            {selectedDayEvents.length ? (
-              <ul className="cal-list">
-                {selectedDayEvents.map((event) => (
-                  <li key={event.id}>
-                    <button type="button" className="cal-event" onClick={() => openEditEvent(event)}>
-                      <span className="cal-event-time">{format(new Date(event.start_datetime), 'HH:mm')}</span>
-                      <span className="cal-event-title">{event.title}</span>
-                      {event.description ? <span className="cal-event-desc">{event.description}</span> : null}
-                      {event.pending_sync ? <span className="cal-pending">{t('cal.pendingSync')}</span> : null}
+          {selectedDayEvents.length || selectedDayChores.length ? (
+            <ul className="cal-list">
+              {selectedDayEvents.map((event) => (
+                <li key={event.id} className="list-row">
+                  <button type="button" className="cal-event" onClick={() => openEditEvent(event)}>
+                    <span className="cal-event-time">{format(new Date(event.start_datetime), 'HH:mm')}</span>
+                    <span className="cal-event-title">{event.title}</span>
+                  </button>
+                  {event.pending_sync ? (
+                    <span className="cal-sync" role="img" aria-label={t('cal.pendingSync')} title={t('cal.pendingSync')}>
+                      <Icon name="refresh" size={14} />
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+              {selectedDayChores.map((chore) => {
+                const isDone = chore.status === 'done';
+                const toggleLabel = isDone ? t('cal.reopen') : t('cal.done');
+                const points = chore.points ?? 0;
+                return (
+                  <li key={chore.id} className={`list-row cal-chore ${isDone ? 'done' : ''}`.trim()}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-icon cal-check"
+                      aria-label={toggleLabel}
+                      title={toggleLabel}
+                      onClick={() => void setChoreStatus(chore, isDone ? 'pending' : 'done')}
+                    >
+                      <Icon name="check" size={18} />
+                    </button>
+                    <span className="cal-chore-text">
+                      <span className="cal-chore-title">{chore.title}</span>
+                      {chore.location || points > 0 ? (
+                        <span className="cal-chore-meta">
+                          {chore.location ? <span className="cal-chore-loc">{chore.location}</span> : null}
+                          {points > 0 ? <span>{t(points === 1 ? 'cal.pointsOne' : 'cal.pointsMany', points)}</span> : null}
+                        </span>
+                      ) : null}
+                    </span>
+                    {chore.pending_sync ? (
+                      <span className="cal-sync" role="img" aria-label={t('cal.pendingSync')} title={t('cal.pendingSync')}>
+                        <Icon name="refresh" size={14} />
+                      </span>
+                    ) : null}
+                    {chore.assigned_name ? (
+                      <span
+                        className="avatar"
+                        role="img"
+                        aria-label={chore.assigned_name}
+                        title={chore.assigned_name}
+                        style={{ background: chore.assigned_color || undefined }}
+                      >
+                        {chore.assigned_name[0]}
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-icon"
+                      aria-label={t('cal.deleteChore', chore.title)}
+                      title={t('cal.deleteChore', chore.title)}
+                      onClick={() => setConfirmDeleteChoreId(chore.id)}
+                    >
+                      <Icon name="trash" size={16} />
                     </button>
                   </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="empty-state">
-                <p>{t('cal.noEventsDay')}</p>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => openCreateEvent(selectedDate)}>
-                  {t('cal.createEvent')}
-                </button>
-              </div>
-            )}
-          </div>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="empty-state compact">{t('cal.emptyDay')}</p>
+          )}
 
-          <div className="cal-group">
-            <h3>{t('cal.chores')}</h3>
-            {selectedDayChores.length ? (
+          {stats.length ? (
+            <section className="cal-rank" aria-label={t('cal.pointsByPerson')}>
+              <h3>{t('cal.pointsByPerson')}</h3>
               <ul className="cal-list">
-                {selectedDayChores.map((chore) => (
-                  <li key={chore.id} className={`cal-chore ${chore.status === 'done' ? 'done' : ''}`}>
-                    <div>
-                      <span className="cal-chore-title">{chore.title}</span>
-                      <span className="cal-chore-meta">
-                        <span>{chore.location || t('cal.noLocation')}</span>
-                        <span>{t((chore.points ?? 0) === 1 ? 'cal.pointsOne' : 'cal.pointsMany', chore.points ?? 0)}</span>
-                        {chore.assigned_name ? (
-                          <span className="cal-assignee">
-                            <span
-                              className="cal-avatar"
-                              style={{ background: chore.assigned_color || undefined }}
-                              aria-hidden="true"
-                            >
-                              {chore.assigned_name[0]}
-                            </span>
-                            {chore.assigned_name}
-                          </span>
-                        ) : null}
-                        {chore.pending_sync ? <span>{t('cal.syncPending')}</span> : null}
+                {stats.map((stat) => (
+                  <li key={stat.id} className="list-row">
+                    <span className="cal-rank-name">
+                      <span className="avatar" style={{ background: stat.color }} aria-hidden="true">
+                        {stat.name[0]}
                       </span>
-                    </div>
-                    <div className="cal-chore-actions">
-                      <button
-                        type="button"
-                        className="cal-textbtn"
-                        onClick={() => void setChoreStatus(chore, chore.status === 'done' ? 'pending' : 'done')}
-                      >
-                        {chore.status === 'done' ? t('cal.reopen') : t('cal.done')}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-icon cal-iconbtn"
-                        aria-label={t('cal.deleteChore', chore.title)}
-                        onClick={() => setConfirmDeleteChoreId(chore.id)}
-                      >
-                        <Icon name="trash" size={16} />
-                      </button>
-                    </div>
+                      {stat.name}
+                    </span>
+                    <span className="cal-rank-points">{stat.points ?? 0}</span>
                   </li>
                 ))}
               </ul>
-            ) : (
-              <div className="empty-state">
-                <p>{t('cal.noChoresDay')}</p>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowChoreModal(true)}>
-                  {t('cal.createChore')}
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="cal-context">
-            {dashboardMeta?.summary?.text ? (
-              <section aria-label={t('cal.summary')}>
-                <h3>{t('cal.summary')}</h3>
-                <p>{dashboardMeta.summary.text}</p>
-              </section>
-            ) : null}
-
-            <section aria-label={t('cal.homeActivity')}>
-              <h3>{t('cal.homeActivity')}</h3>
-              {dashboardMeta?.activity?.length ? (
-                <ul className="cal-plain-list">
-                  {dashboardMeta.activity.slice(0, 5).map((item) => (
-                    <li key={item.id}>
-                      <div>
-                        <span className="cal-activity-title">{item.title}</span>
-                        <p className="cal-activity-detail">{item.detail}</p>
-                      </div>
-                      <span className="cal-activity-kind">{item.type === 'event' ? t('cal.kindAgenda') : t('cal.kindShopping')}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>{t('cal.noActivity')}</p>
-              )}
             </section>
-
-            <section aria-label={t('cal.pointsByPerson')}>
-              <h3>{t('cal.pointsByPerson')}</h3>
-              {stats.length ? (
-                <ul className="cal-plain-list">
-                  {stats.map((stat) => (
-                    <li key={stat.id}>
-                      <span className="cal-rank">
-                        <span className="cal-avatar" style={{ background: stat.color }} aria-hidden="true">
-                          {stat.name[0]}
-                        </span>
-                        {stat.name}
-                      </span>
-                      <span className="cal-rank-points">
-                        {t((stat.completed ?? 0) === 1 ? 'cal.doneOne' : 'cal.doneMany', stat.completed ?? 0)}, {t((stat.points ?? 0) === 1 ? 'cal.pointsOne' : 'cal.pointsMany', stat.points ?? 0)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>{t('cal.noPoints')}</p>
-              )}
-            </section>
-          </div>
+          ) : null}
         </section>
       </div>
 
@@ -666,7 +602,7 @@ export default function Calendar() {
             <div className="modal-header">
               <span className="modal-title">{editingEvent ? t('calendar.editEvent') : t('cal.newEventTitle')}</span>
               <button
-                className="modal-close cal-modal-close"
+                className="modal-close"
                 onClick={() => setShowEventModal(false)}
                 aria-label={t('common.close')}
               >
@@ -756,7 +692,7 @@ export default function Calendar() {
             <div className="modal-header">
               <span className="modal-title">{t('chores.newRecurring')}</span>
               <button
-                className="modal-close cal-modal-close"
+                className="modal-close"
                 onClick={() => setShowChoreModal(false)}
                 aria-label={t('common.close')}
               >

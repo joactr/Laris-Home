@@ -65,7 +65,6 @@ const baseEs: Record<string, string> = {
     'auth.loginLink': 'Inicia sesión',
     'auth.createAccount': 'Crear cuenta',
     'auth.signin': 'Entrar',
-    'auth.tagline': 'Tu hogar compartido, organizado',
 
     // Titles
     'page.dashboard': 'Inicio',

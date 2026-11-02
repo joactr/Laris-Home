@@ -54,7 +54,6 @@ export const enBase: Record<string, string> = {
     'auth.loginLink': 'Log in',
     'auth.createAccount': 'Create account',
     'auth.signin': 'Sign in',
-    'auth.tagline': 'Your shared home, organized',
 
     // Titles
     'page.dashboard': 'Home',

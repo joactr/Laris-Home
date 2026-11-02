@@ -1,58 +1,50 @@
-.admin-list {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-  border-top: 1px solid var(--surface-border);
+/* Hallmark · admin styles · stamp, critique and records in styles/global.css */
+.admin-layout {
+  display: grid;
+  gap: var(--space-lg);
+  align-items: start;
 }
 
-.admin-form {
-  max-width: 620px;
+.admin-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .admin-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 4px;
-  border-bottom: 1px solid var(--surface-border);
+  gap: var(--space-sm);
 }
 
-.admin-avatar {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: 2px solid var(--accent);
-  border-radius: 50%;
-  background: var(--bg-soft);
-  color: var(--text-primary);
-  font-weight: 700;
-}
-
-.admin-copy {
-  display: flex;
-  flex: 1 1 160px;
-  flex-direction: column;
+.admin-name {
   min-width: 0;
-  gap: 2px;
-}
-
-.admin-copy strong,
-.admin-copy span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
 }
 
-.admin-copy span {
+.admin-username {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--text-muted);
-  font-size: 0.85rem;
 }
 
-.admin-row .btn {
+.admin-action {
   margin-left: auto;
-  min-height: 40px;
+}
+
+@media (min-width: 961px) {
+  .admin-layout {
+    grid-template-columns: minmax(280px, 1fr) minmax(0, 1.6fr);
+  }
+}
+
+@media (max-width: 960px) {
+  .admin-action {
+    width: var(--hit);
+    height: var(--hit);
+  }
 }

@@ -122,13 +122,12 @@ export default function AdminUsersPage() {
 
   return (
     <div className="page page-admin-users">
-      <SectionHeader
-        title={t('admin.title')}
-        subtitle={t('admin.subtitle')}
-      />
+      <SectionHeader title={t('admin.title')} />
+
+      <div className="admin-layout">
 
       <Surface title={t('admin.createUser')}>
-        <form onSubmit={handleCreateUser} className="admin-form">
+        <form onSubmit={handleCreateUser}>
           <div className="field-grid two">
             <div className="form-group">
               <label className="label">{t('admin.name')}</label>
@@ -141,12 +140,11 @@ export default function AdminUsersPage() {
           </div>
 
           <div className="form-group">
-              <label className="label">{t('admin.initialPassword')}</label>
+            <label className="label">{t('admin.initialPassword')}</label>
             <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={MIN_PASSWORD_LENGTH} />
-            <p className="field-help">{t('admin.minChars', MIN_PASSWORD_LENGTH)}</p>
           </div>
 
-          {formError ? <p className="form-error-inline">{formError}</p> : null}
+          {formError ? <p className="form-error">{formError}</p> : null}
 
           <div className="surface-actions">
             <button type="submit" className="btn btn-primary" disabled={loading}>
@@ -156,10 +154,7 @@ export default function AdminUsersPage() {
         </form>
       </Surface>
 
-      <Surface
-        title={t('admin.users')}
-        subtitle={t(users.length === 1 ? 'admin.accountsOne' : 'admin.accountsMany', users.length)}
-      >
+      <Surface title={t('admin.users')}>
         {usersLoading ? (
           <div className="loading-center small">
             <div className="spinner" />
@@ -167,16 +162,21 @@ export default function AdminUsersPage() {
         ) : users.length ? (
           <ul className="admin-list">
             {users.map((member) => (
-              <li key={member.id} className="admin-row">
-                <span className="admin-avatar" style={{ background: member.color }} aria-hidden="true">
+              <li key={member.id} className="list-row admin-row">
+                <span className="avatar" style={{ background: member.color }} aria-hidden="true">
                   {(member.name?.trim() || member.username?.trim() || '?').slice(0, 1).toUpperCase()}
                 </span>
-                <div className="admin-copy">
-                  <strong>{member.name}</strong>
-                  <span>{member.username}, {member.role === 'admin' || member.is_admin ? t('admin.adminRole') : t('admin.memberRole')}</span>
-                </div>
-                <button className="btn btn-secondary btn-sm" type="button" onClick={() => openPasswordModal(member.id)}>
-                  {t('admin.changePassword')}
+                <span className="admin-name">{member.name}</span>
+                <span className="admin-username">{member.username}</span>
+                {member.role === 'admin' || member.is_admin ? <span className="status-badge shared">{t('admin.adminRole')}</span> : null}
+                <button
+                  className="btn btn-ghost btn-icon admin-action"
+                  type="button"
+                  onClick={() => openPasswordModal(member.id)}
+                  aria-label={t('admin.changePassword')}
+                  title={t('admin.changePassword')}
+                >
+                  <Icon name="shield" size={18} />
                 </button>
               </li>
             ))}
@@ -185,6 +185,7 @@ export default function AdminUsersPage() {
           <p className="empty-state">{t('admin.noUsers')}</p>
         )}
       </Surface>
+      </div>
 
       {selectedUser ? (
         <div className="modal-overlay" onClick={closePasswordModal}>
@@ -201,7 +202,6 @@ export default function AdminUsersPage() {
                 <input
                   className="input"
                   type="password"
-                  placeholder={t('admin.minPasswordPlaceholder', MIN_PASSWORD_LENGTH)}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   required
@@ -210,7 +210,7 @@ export default function AdminUsersPage() {
                 />
               </div>
 
-              {passwordError ? <p className="form-error-inline">{passwordError}</p> : null}
+              {passwordError ? <p className="form-error">{passwordError}</p> : null}
 
               <div className="modal-actions">
                 <button

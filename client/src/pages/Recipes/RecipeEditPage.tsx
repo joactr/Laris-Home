@@ -219,8 +219,8 @@ export default function RecipeEditPage() {
         });
     };
 
-    if (loading) return <div className="page" style={{ padding: '2rem', textAlign: 'center' }}>{t('common.loading')}</div>;
-    if (loadError || !recipe) return <div className="page" style={{ padding: '2rem', color: 'red' }}>Error: {loadError || t('rec.notFound')}</div>;
+    if (loading) return <div className="loading-center"><div className="spinner" /></div>;
+    if (loadError || !recipe) return <div className="page"><p className="form-error" role="alert">{loadError || t('rec.notFound')}</p></div>;
 
     const steps = recipe.instructions;
 
@@ -234,7 +234,7 @@ export default function RecipeEditPage() {
             </div>
 
             <form className="recipes-form" onSubmit={(e) => { e.preventDefault(); void handleSave(); }}>
-                {error ? <div className="recipes-form-error" role="alert">{error}</div> : null}
+                {error ? <div className="form-error" role="alert">{error}</div> : null}
 
                 <section className="recipes-form-section" aria-label={t('rec.basicData')}>
                     <div className="form-group">
@@ -391,7 +391,15 @@ export default function RecipeEditPage() {
                     </div>
                     <div className="recipes-ingredient-rows">
                         {recipe.ingredients.map((ing, idx) => (
-                            <div key={idx} className="recipes-ingredient-row">
+                            <div key={idx} className="recipes-ingredient-row edit">
+                                <label className="recipes-check">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedIngredients.includes(idx.toString())}
+                                        onChange={() => toggleIngredientForShopping(idx)}
+                                        aria-label={`${t('rec.addToShopping')}: ${ing.name || t('rec.ingredientFallback', idx + 1)}`}
+                                    />
+                                </label>
                                 <input
                                     className="input"
                                     placeholder={t('rec.ingNamePh')}
@@ -426,9 +434,32 @@ export default function RecipeEditPage() {
                                 </button>
                             </div>
                         ))}
-                        {recipe.ingredients.length === 0 && (
-                            <p className="recipe-row-meta">{t('rec.noIngredients')}</p>
-                        )}
+                    </div>
+                    <div className="recipes-shopping">
+                        <div className="form-group">
+                            <label className="label" htmlFor="edit-shopping-list">{t('page.shopping')}</label>
+                            <select
+                                id="edit-shopping-list"
+                                className="input"
+                                value={selectedListId}
+                                onChange={e => setSelectedListId(e.target.value)}
+                                disabled={lists.length === 0}
+                            >
+                                {lists.length === 0 ? (
+                                    <option value="">{t('rec.noLists')}</option>
+                                ) : (
+                                    lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)
+                                )}
+                            </select>
+                        </div>
+                        <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={handleAddSelectedToShopping}
+                            disabled={isAddingToShopping || selectedIngredients.length === 0 || !selectedListId}
+                        >
+                            {isAddingToShopping ? t('common.loading') : t('rec.addSelected')}
+                        </button>
                     </div>
                 </section>
 
@@ -449,7 +480,6 @@ export default function RecipeEditPage() {
                                 <span className="recipes-step-num" aria-hidden="true">{idx + 1}</span>
                                 <textarea
                                     className="input"
-                                    placeholder={t('rec.stepPh', idx + 1)}
                                     value={step}
                                     aria-label={t('rec.stepAria', idx + 1)}
                                     onChange={e => {
@@ -470,57 +500,6 @@ export default function RecipeEditPage() {
                                     <Icon name="trash" size={18} />
                                 </button>
                             </div>
-                        ))}
-                        {steps.length === 0 && (
-                            <p className="recipe-row-meta">{t('rec.noSteps')}</p>
-                        )}
-                    </div>
-                </section>
-
-                <section className="recipes-form-section" aria-label={t('rec.addToShopping')}>
-                    <div className="recipes-form-section-head">
-                        <h2>{t('rec.addToShopping')}</h2>
-                        <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={handleAddSelectedToShopping}
-                            disabled={isAddingToShopping || selectedIngredients.length === 0 || !selectedListId}
-                        >
-                            {isAddingToShopping ? t('common.loading') : t('rec.addSelected')}
-                        </button>
-                    </div>
-                    <p className="recipe-row-meta">{t('rec.addShoppingHint')}</p>
-                    <div className="form-group">
-                        <label className="label" htmlFor="edit-shopping-list">{t('page.shopping')}</label>
-                        <select
-                            id="edit-shopping-list"
-                            className="input"
-                            value={selectedListId}
-                            onChange={e => setSelectedListId(e.target.value)}
-                            disabled={lists.length === 0}
-                        >
-                            {lists.length === 0 ? (
-                                <option value="">{t('rec.noLists')}</option>
-                            ) : (
-                                lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)
-                            )}
-                        </select>
-                    </div>
-                    <div>
-                        {recipe.ingredients.map((ing, idx) => (
-                            <label key={`shopping-${idx}`} className="recipes-check-row">
-                                <input
-                                    type="checkbox"
-                                    checked={selectedIngredients.includes(idx.toString())}
-                                    onChange={() => toggleIngredientForShopping(idx)}
-                                />
-                                <span style={{ flex: 1 }}>
-                                    {ing.name || t('rec.ingredientFallback', idx + 1)}
-                                </span>
-                                <span className="sub">
-                                    {ing.quantity ?? ''} {ing.unit ?? ''}
-                                </span>
-                            </label>
                         ))}
                     </div>
                 </section>

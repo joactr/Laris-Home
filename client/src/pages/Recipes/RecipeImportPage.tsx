@@ -81,7 +81,7 @@ export default function RecipeImportPage() {
                 </div>
 
                 <form className="recipes-form" onSubmit={(e) => { e.preventDefault(); void handleSave(); }}>
-                    {error ? <div className="recipes-form-error" role="alert">{error}</div> : null}
+                    {error ? <div className="form-error" role="alert">{error}</div> : null}
 
                     <section className="recipes-form-section" aria-label={t('rec.basicData')}>
                         <div className="form-group">
@@ -223,6 +223,7 @@ export default function RecipeImportPage() {
                                 <div key={idx} className="recipes-ingredient-row">
                                     <input
                                         className="input"
+                                        placeholder={t('rec.ingNamePh')}
                                         value={ing.name}
                                         aria-label={t('rec.ingredientNameAria', idx + 1)}
                                         onChange={e => updateIngredient(idx, { name: e.target.value })}
@@ -231,17 +232,18 @@ export default function RecipeImportPage() {
                                         className="input"
                                         type="number"
                                         min={0}
+                                        placeholder={t('rec.ingQtyPh')}
                                         value={ing.quantity ?? ''}
                                         aria-label={t('rec.ingredientQtyAria', idx + 1)}
                                         onChange={e => updateIngredient(idx, { quantity: e.target.value === '' ? null : Number(e.target.value) })}
                                     />
                                     <input
                                         className="input"
+                                        placeholder={t('rec.ingUnitPh')}
                                         value={ing.unit ?? ''}
                                         aria-label={t('rec.ingredientUnitAria', idx + 1)}
                                         onChange={e => updateIngredient(idx, { unit: e.target.value })}
                                     />
-                                    <span className="recipe-row-meta" aria-hidden="true">{ing.quantity ?? ''} {ing.unit ?? ''}</span>
                                 </div>
                             ))}
                         </div>
@@ -253,7 +255,7 @@ export default function RecipeImportPage() {
                             <textarea
                                 id="import-steps"
                                 className="input"
-                                style={{ minHeight: 200 }}
+                                rows={10}
                                 value={recipe.instructions.join('\n')}
                                 onChange={e => setRecipe({ ...recipe, instructions: e.target.value.split('\n') })}
                             />
@@ -279,7 +281,6 @@ export default function RecipeImportPage() {
                 </button>
                 <h1>{t('recipes.importUrl')}</h1>
             </div>
-            <p className="recipe-detail-meta">{t('rec.importHint')}</p>
 
             <form className="recipes-form" onSubmit={(e) => { e.preventDefault(); void handleImport(); }}>
                 <div className="form-group">
@@ -294,7 +295,7 @@ export default function RecipeImportPage() {
                         required
                     />
                 </div>
-                {error ? <div className="recipes-form-error" role="alert">{error}</div> : null}
+                {error ? <div className="form-error" role="alert">{error}</div> : null}
                 <div className="recipes-form-actions">
                     <button type="button" className="btn btn-secondary" onClick={() => navigate('/recipes')}>{t('common.cancel')}</button>
                     <button

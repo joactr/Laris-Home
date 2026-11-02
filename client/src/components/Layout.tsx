@@ -11,6 +11,7 @@ import { APP_NAV_ITEMS } from './navigation';
 import LanguageSwitch from './LanguageSwitch';
 import ToastViewport from './ToastViewport';
 import { api } from '../api';
+import Icon from './Icon';
 
 function isActivePath(currentPath: string, path: string) {
   return path === '/' ? currentPath === '/' : currentPath.startsWith(path);
@@ -20,6 +21,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
+  const user = useAuthStore((s) => s.user);
   const isAdmin = useAuthStore((s) => Boolean(s.user?.is_admin || s.user?.role === 'admin'));
   const isOffline = useOfflineStore((s) => s.isOffline);
   const pendingCount = useOfflineStore((s) => s.pendingCount);
@@ -71,39 +73,31 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               className={`nav-item ${location.pathname.startsWith('/admin') ? 'active' : ''}`}
               onClick={() => navigate('/admin')}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3 4.5 6v5.5c0 4.4 3.1 8 7.5 9.5 4.4-1.5 7.5-5.1 7.5-9.5V6L12 3Z" />
-                <path d="m9 12 2 2 4-4" />
-              </svg>
+              <Icon name="shield" />
               <span>{t('shell.admin')}</span>
             </button>
           ) : null}
         </div>
 
         <div className="sidebar-footer">
-          {(isOffline || pendingCount > 0) && (
-            <div className="sidebar-status">
-              <span className={`status-dot ${isOffline ? 'offline' : 'syncing'}`} />
-              <div>
-                <strong>{isOffline ? t('shell.offline') : t('shell.syncing')}</strong>
-                <p>
-                  {pendingCount > 0
-                    ? t(pendingCount === 1 ? 'shell.pendingOne' : 'shell.pendingMany', pendingCount)
-                    : t('shell.upToDate')}
-                </p>
-              </div>
-            </div>
-          )}
-
-          <LanguageSwitch />
-          <button type="button" className="nav-item sidebar-logout" onClick={logout}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M10 17 15 12 10 7" />
-              <path d="M15 12H3" />
-              <path d="M10 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7" />
-            </svg>
-            <span>{t('nav.logout')}</span>
-          </button>
+          <div className="sidebar-user">
+            <span className="avatar" style={user?.color ? { background: user.color } : undefined} aria-hidden="true">
+              {(user?.name || user?.username || '?').slice(0, 2).toUpperCase()}
+            </span>
+            <span className="sidebar-user-name">{user?.name || user?.username}</span>
+          </div>
+          <div className="sidebar-footer-row">
+            <LanguageSwitch />
+            <button
+              type="button"
+              className="icon-button sidebar-logout"
+              onClick={logout}
+              aria-label={t('nav.logout')}
+              title={t('nav.logout')}
+            >
+              <Icon name="logout" />
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -111,8 +105,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <TopBar title={currentTitle} actions={<VoiceAssistantUI />} />
 
         {(isOffline || pendingCount > 0) && (
-          <button type="button" className="sync-banner sync-banner-button" onClick={openSyncFailures}>
-            <span className={`status-dot ${isOffline ? 'offline' : 'syncing'}`} />
+          <button type="button" className={`sync-banner sync-banner-button ${isOffline ? 'offline' : ''}`} onClick={openSyncFailures}>
+            <Icon name={isOffline ? 'warning' : 'refresh'} size={18} />
             <span>
               {isOffline
                 ? t('shell.offlineBanner')

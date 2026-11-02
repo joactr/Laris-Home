@@ -32,21 +32,9 @@ export default function StatusModal({
           <span className="modal-title">{title}</span>
           <button className="modal-close touch-target" onClick={onClose} aria-label={t('common.close')}>×</button>
         </div>
-        <div style={{ padding: '0 0 16px' }}>
-          <p style={{ marginBottom: details ? 12 : 0 }}>{message}</p>
-          {details && (
-            <div style={{
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              padding: 12,
-              color: 'var(--text-secondary)',
-              whiteSpace: 'pre-wrap',
-              fontSize: 13,
-            }}>
-              {details}
-            </div>
-          )}
+        <div className="modal-body">
+          <p>{message}</p>
+          {details && <div className="modal-details">{details}</div>}
         </div>
         <div className="modal-actions">
           {onSecondary && (

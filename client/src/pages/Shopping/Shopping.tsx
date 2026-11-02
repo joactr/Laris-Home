@@ -41,14 +41,10 @@ type DuplicatePrompt = {
   candidate: ShoppingDuplicatePreview['candidates'][number];
 };
 
-function itemMeta(item: ShoppingItem): string {
-  const parts: string[] = [
-    item.quantity ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : t('shopUi.noQuantity'),
-  ];
-  if (item.category) parts.push(item.category);
-  if (item.pending_sync) parts.push(t('shopping.offlinePending'));
-  if (item.sync_error) parts.push(t('shopping.offlineError'));
-  return parts.join(', ');
+function itemQuantity(item: ShoppingItem): string {
+  const quantity = Number(item.quantity) || 0;
+  if (!item.unit && quantity <= 1) return '';
+  return [quantity || null, item.unit].filter(Boolean).join(' ');
 }
 
 export default function Shopping() {
@@ -209,10 +205,7 @@ export default function Shopping() {
 
   return (
     <div className="page page-shopping">
-      <SectionHeader
-        title={t('page.shopping')}
-        subtitle={remainingCount === 1 ? t('shopUi.pendingOne', remainingCount) : t('shopUi.pendingMany', remainingCount)}
-      />
+      <SectionHeader title={t('page.shopping')} />
 
       {lists.length === 0 ? (
         <p className="empty-state">
@@ -223,41 +216,42 @@ export default function Shopping() {
         </p>
       ) : (
         <>
-          <div className="shopping-lists" role="tablist" aria-label={t('page.shopping')}>
-            {lists.map((list) => (
-              <button
-                key={list.id}
-                type="button"
-                role="tab"
-                aria-selected={list.id === activeListId}
-                className="shopping-list-tab"
-                onClick={() => setActiveListId(list.id)}
-              >
-                {list.name}
-              </button>
-            ))}
-            <button type="button" className="shopping-create" onClick={() => setShowNewList(true)}>
-              <Icon name="plus" size={16} />
-              {t('shopUi.newList')}
+          <div className="shopping-bar">
+            <div className="shopping-lists" role="tablist" aria-label={t('page.shopping')}>
+              {lists.map((list) => (
+                <button
+                  key={list.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={list.id === activeListId}
+                  className={`chip${list.id === activeListId ? ' active' : ''}`}
+                  onClick={() => setActiveListId(list.id)}
+                >
+                  {list.name}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="btn-icon"
+              onClick={() => setShowNewList(true)}
+              aria-label={t('shopUi.newList')}
+              title={t('shopUi.newList')}
+            >
+              <Icon name="plus" size={18} />
             </button>
             {activeList && lists.length > 1 ? (
               <button
                 type="button"
-                className="icon-button"
+                className="btn-icon"
                 onClick={() => setConfirmDeleteList(activeList.id)}
                 aria-label={t('shopUi.deleteListOf', activeList.name)}
+                title={t('shopUi.deleteListOf', activeList.name)}
               >
                 <Icon name="trash" size={18} />
               </button>
             ) : null}
           </div>
-
-          {(isOffline || pendingCount > 0) && (
-            <p className="shopping-sync">
-              <span className={`status-dot ${isOffline ? 'offline' : 'syncing'}`} aria-hidden="true" />
-              {isOffline ? t('shopUi.offlineMode') : pendingCount === 1 ? t('shopUi.pendingChangesOne', pendingCount) : t('shopUi.pendingChangesMany', pendingCount)}
-            </p>
-          )}
 
           <form onSubmit={addItem} className="shopping-add">
             <input
@@ -279,30 +273,53 @@ export default function Shopping() {
               inputMode="decimal"
               aria-label={t('shopping.qtyLabel')}
             />
-            <button id="add-item-submit" type="submit" className="btn btn-primary">
-              {t('shopUi.addItemBtn')}
+            <button
+              id="add-item-submit"
+              type="submit"
+              className="btn btn-primary"
+              aria-label={t('shopUi.addItemBtn')}
+              title={t('shopUi.addItemBtn')}
+            >
+              <Icon name="plus" size={18} />
+              <span className="shopping-add-label">{t('shopUi.addItemBtn')}</span>
             </button>
           </form>
 
-          <SegmentedControl
-            value={filter}
-            onChange={setFilter}
-            options={[
-              { value: 'all', label: t('shopping.filterAll') },
-              { value: 'active', label: t('shopping.filterActive') },
-              { value: 'completed', label: t('shopping.filterCompleted') },
-            ]}
-            className="shopping-filter"
-          />
+          <div className="shopping-filters">
+            <SegmentedControl
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { value: 'all', label: t('shopping.filterAll') },
+                {
+                  value: 'active',
+                  label: remainingCount ? `${t('shopping.filterActive')} ${remainingCount}` : t('shopping.filterActive'),
+                },
+                { value: 'completed', label: t('shopping.filterCompleted') },
+              ]}
+            />
+            {isOffline ? (
+              <span className="status-badge pending">{t('shopUi.offlineMode')}</span>
+            ) : pendingCount > 0 ? (
+              <span
+                className="status-badge pending"
+                role="img"
+                aria-label={pendingCount === 1 ? t('shopUi.pendingChangesOne', pendingCount) : t('shopUi.pendingChangesMany', pendingCount)}
+              >
+                <Icon name="clock" size={14} />
+                {pendingCount}
+              </span>
+            ) : null}
+          </div>
 
           {buyAgain.length > 0 ? (
-            <div className="shopping-suggest">
-              <span>{t('shopUi.buyAgain')}</span>
+            <div className="shopping-suggest" role="group" aria-label={t('shopUi.buyAgain')}>
+              <Icon name="refresh" size={16} />
               {buyAgain.slice(0, 5).map((suggestion) => (
                 <button
                   key={suggestion.normalized_name || suggestion.name}
                   type="button"
-                  className="shopping-suggest-btn"
+                  className="chip"
                   onClick={() => void addSmartItem({
                     name: suggestion.name,
                     quantity: suggestion.quantity ? Number(suggestion.quantity) : undefined,
@@ -327,9 +344,10 @@ export default function Shopping() {
                     {group.done ? (
                       <button
                         type="button"
-                        className="icon-button"
+                        className="btn-icon"
                         onClick={() => void reAdd(item.id)}
                         aria-label={t('common.readd')}
+                        title={t('common.readd')}
                       >
                         <Icon name="undo" size={18} />
                       </button>
@@ -340,13 +358,25 @@ export default function Shopping() {
                         id={`check-item-${item.id}`}
                         onClick={() => void toggle(item.id)}
                         aria-label={t('common.mark')}
+                        title={t('common.mark')}
                       >
                         <span className="shopping-check-circle" aria-hidden="true" />
                       </button>
                     )}
                     <div className="shopping-item-copy">
-                      <div className="shopping-item-name">{item.name}</div>
-                      <div className="shopping-item-meta">{itemMeta(item)}</div>
+                      <span className="shopping-item-name">{item.name}</span>
+                      {itemQuantity(item) ? <span className="shopping-item-qty">{itemQuantity(item)}</span> : null}
+                      {item.category ? <span className="shopping-item-qty">{item.category}</span> : null}
+                      {item.pending_sync ? (
+                        <span className="shopping-item-state" role="img" aria-label={t('shopping.offlinePending')} title={t('shopping.offlinePending')}>
+                          <Icon name="clock" size={14} />
+                        </span>
+                      ) : null}
+                      {item.sync_error ? (
+                        <span className="shopping-item-state error" role="img" aria-label={t('shopping.offlineError')} title={t('shopping.offlineError')}>
+                          <Icon name="warning" size={14} />
+                        </span>
+                      ) : null}
                     </div>
                     {item.added_by_name ? (
                       <span className="avatar" style={{ background: item.added_by_color ?? undefined }} title={item.added_by_name}>
@@ -355,9 +385,10 @@ export default function Shopping() {
                     ) : null}
                     <button
                       type="button"
-                      className="icon-button shopping-delete"
+                      className="btn-icon shopping-delete"
                       onClick={() => void remove(item.id)}
                       aria-label={`${t('common.delete')}: ${item.name}`}
+                      title={`${t('common.delete')}: ${item.name}`}
                     >
                       <Icon name="trash" size={18} />
                     </button>
